@@ -10,6 +10,7 @@ from openai import AsyncOpenAI
 import aiohttp  # For asynchronous web requests
 import re  # For URL detection
 import requests
+import base64  # For image encoding
 
 load_dotenv()
 logging.basicConfig(
@@ -19,8 +20,9 @@ logging.basicConfig(
 )
 
 # Initialize the OpenAI client with your local AI server details
-llm_client = AsyncOpenAI(base_url="http://localhost:1234/v1", api_key="not-needed")
+llm_client = AsyncOpenAI(base_url="http://localhost:1234/v1", api_key="lm-studio")
 
+# Function to query Searx search engine
 async def query_searx(query):
     print(f"Querying Searx for: {query}")
     searx_url = "http://192.168.1.3:9092/search"
@@ -44,9 +46,10 @@ async def query_searx(query):
         print(f"An error occurred while fetching data: {e}")
     return None
 
+# Function to generate a completion using the OpenAI client
 def generate_completion(prompt):
     response = llm_client.completions.create(
-        model="local-model",
+        model="MaziyarPanahi/WizardLM-2-7B-GGUF/WizardLM-2-7B.Q4_K_M.gguf",
         prompt=prompt,
         temperature=0.7,
         max_tokens=2048,
@@ -56,6 +59,7 @@ def generate_completion(prompt):
     )
     return response.choices[0].text.strip()
 
+# Load configuration for different LLM models
 LLM_CONFIG = {
     "gpt": {
         "api_key": os.environ["OPENAI_API_KEY"],
@@ -73,10 +77,11 @@ LLM_CONFIG = {
 LLM_VISION_SUPPORT = "vision" in os.environ["LLM"]
 MAX_COMPLETION_TOKENS = 2048
 
+# Load allowed channel and role IDs from environment variables
 ALLOWED_CHANNEL_IDS = [int(i) for i in os.environ["ALLOWED_CHANNEL_IDS"].split(",") if i]
 ALLOWED_ROLE_IDS = [int(i) for i in os.environ["ALLOWED_ROLE_IDS"].split(",") if i]
 MAX_IMAGES = int(os.environ["MAX_IMAGES"]) if LLM_VISION_SUPPORT else 0
-MAX_IMAGE_WARNING = f"⚠️ Max {MAX_IMAGES} image{'' if MAX_IMAGES == 1 else 's'} per message" if MAX_IMAGES > 0 else "⚠️ Can't see images"
+MAX_IMAGE_WARNING = f"⚠️ Max {MAX_IMAGES} image{'' if MAX_IMAGES == 1 else 's'} per message" if MAX_IMAGES > 0 else ""
 MAX_MESSAGES = int(os.environ["MAX_MESSAGES"])
 MAX_MESSAGE_WARNING = f"⚠️ Only using last {MAX_MESSAGES} messages"
 
@@ -84,20 +89,24 @@ EMBED_COLOR = {"incomplete": discord.Color.orange(), "complete": discord.Color.g
 EMBED_MAX_LENGTH = 4096
 EDITS_PER_SECOND = 1.3
 
+# Initialize Discord client with intents to access message content
 intents = discord.Intents.default()
 intents.message_content = True
 discord_client = discord.Client(intents=intents)
 
+# Dictionaries to store message nodes and in-progress message IDs
 msg_nodes = {}
 in_progress_msg_ids = []
 message_history = {}
 
+# Class to represent a message node
 class MsgNode:
     def __init__(self, msg, too_many_images=False, replied_to=None):
         self.msg = msg
         self.too_many_images = too_many_images
         self.replied_to = replied_to
 
+# Function to get the system prompt
 def get_system_prompt():
     if os.environ["LLM"] == "gpt-4-vision-preview" or "mistral" in os.environ["LLM"] or "local" in os.environ["LLM"]:
         # Temporary fix until gpt-4-vision-preview, Mistral API and LM Studio support message.name
@@ -114,12 +123,13 @@ def get_system_prompt():
         }
     ]
 
+# Function to scrape a website asynchronously
 async def scrape_website(url):
     print(f"Scraping website: {url}")
     async with aiohttp.ClientSession() as session:
         try:
             async with session.get(url) as response:
-                if response.status==200:
+                if response.status == 200:
                     text = await response.text()
                     soup = BeautifulSoup(text, 'html.parser')
                     text = soup.get_text()
@@ -130,12 +140,13 @@ async def scrape_website(url):
             print(f"An error occurred while fetching data: {e}")
     return None
 
-# Detect URLs using a regular expression within the user's message
+# Function to detect URLs in a message using regex
 def detect_urls(message_text):
     url_pattern = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
     urls = url_pattern.findall(message_text)
     return urls
 
+# Discord client event handler for new messages
 @discord_client.event
 async def on_message(msg):
     logging.info(f"Received message: {msg.content} from {msg.author.name}")
@@ -253,8 +264,27 @@ async def on_message(msg):
         
         # Inject webpage summaries into the history
         for webpage_text in webpage_texts:
-            reply_chain[0]["content"][0]["text"] += f"\n[Webpage Summary: {webpage_text}]"
-            
+            reply_chain[0]["content"][0]["text"] += f"\n[Webpage Scrape for Summarization: {webpage_text}]"
+
+        # Handle images sent by the user
+        for attachment in msg.attachments:
+            if "image" in attachment.content_type:
+                image_url = attachment.url
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(image_url) as resp:
+                        if resp.status == 200:
+                            image_data = await resp.read()
+                            base64_image = base64.b64encode(image_data).decode("utf-8")
+                            reply_chain[0]["content"].append(
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/jpeg;base64,{base64_image}"
+                                    },
+                                }
+                            )
+                            break  # Only handle the first image
+
         # Right before generating the reply chain
         logging.info(f"Preparing to generate response. Current history size for channel {msg.channel.id}: {len(message_history[msg.channel.id])}, Current reply chain length: {len(reply_chain)}")
 
@@ -310,9 +340,9 @@ async def on_message(msg):
             )
             in_progress_msg_ids.remove(response_msg.id)
 
+# Main function to run the Discord client
 async def main():
     await discord_client.start(os.environ["DISCORD_BOT_TOKEN"])
 
 if __name__ == "__main__":
     asyncio.run(main())
-
