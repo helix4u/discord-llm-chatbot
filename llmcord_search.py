@@ -113,7 +113,7 @@ def get_system_prompt():
         return [
             {
                 "role": "system",
-                "content": f"{os.environ['CUSTOM_SYSTEM_PROMPT']}",
+                "content": f"{os.environ['CUSTOM_SYSTEM_PROMPT']}\nToday's date: {datetime.now().strftime('%B %d %Y')}",
             }
         ]
     return [
