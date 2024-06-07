@@ -36,8 +36,13 @@ async def query_searx(query):
         if response.status_code == 200:
             results = response.json()
             if 'results' in results:
-                summarized_info = " ".join([result['content'] for result in results['results'][:5]])
-                return summarized_info
+                summarized_info = []
+                for result in results['results'][:10]:
+                    title = result.get('title', 'No title')
+                    url = result.get('url', 'No URL')
+                    content = result.get('content', 'No content')
+                    summarized_info.append(f"Title: {title}\nURL: {url}\nContent: {content}")
+                return "\n\n".join(summarized_info)
             else:
                 print("No results found in Searx response.")
         else:
@@ -45,6 +50,7 @@ async def query_searx(query):
     except requests.exceptions.RequestException as e:
         print(f"An error occurred while fetching data: {e}")
     return None
+
 
 # Function to generate a completion using the OpenAI client
 def generate_completion(prompt):
@@ -260,7 +266,7 @@ async def on_message(msg):
         if search_enabled:
             searx_summary = await query_searx(reply_chain[0]["content"][0]["text"])
             if searx_summary:
-                reply_chain[0]["content"][0]["text"] += f" [Search and Retrieval Augmentation Summary: {searx_summary}]"
+                reply_chain[0]["content"][0]["text"] += f" [Search and retrieval augmentation data for summarization and link citation (provide full links formatted for discord when citing): {searx_summary}]"
         
         # Inject webpage summaries into the history
         for webpage_text in webpage_texts:
