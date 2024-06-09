@@ -205,20 +205,21 @@ async def on_message(msg):
     clear_history_used = False
 
     # Check for command toggles
-    command = msg.content.lower().split()[0]
-    if command == "!toggle_search":
-        search_enabled = not search_enabled
-        await msg.channel.send(f"Search functionality is now {'enabled' if search_enabled else 'disabled'}.")
-        return  # Do not add the command to the bot history or process further
-    elif command == "!clear_history":
-        logging.info(f"Clearing history for channel: {msg.channel.id}")
-        clear_history_used = True
-        message_history[msg.channel.id].clear()
-        logging.info(f"History cleared. Current history size: {len(message_history[msg.channel.id])}")
-        await msg.channel.send("Message history has been cleared.")
-        return  # Do not add the command to the bot history or process further
-    elif command == "!search":
-        search_enabled = True
+    if msg.content:
+        command = msg.content.lower().split()[0]
+        if command == "!toggle_search":
+            search_enabled = not search_enabled
+            await msg.channel.send(f"Search functionality is now {'enabled' if search_enabled else 'disabled'}.")
+            return  # Do not add the command to the bot history or process further
+        elif command == "!clear_history":
+            logging.info(f"Clearing history for channel: {msg.channel.id}")
+            clear_history_used = True
+            message_history[msg.channel.id].clear()
+            logging.info(f"History cleared. Current history size: {len(message_history[msg.channel.id])}")
+            await msg.channel.send("Message history has been cleared.")
+            return  # Do not add the command to the bot history or process further
+        elif command == "!search":
+            search_enabled = True
 
     # Update message history
     message_history.setdefault(msg.channel.id, [])
@@ -227,28 +228,29 @@ async def on_message(msg):
 
     async with msg.channel.typing():
         # Check for command toggles
-        command = msg.content.lower().split()[0]
-        if command == "!toggle_search":
-            search_enabled = not search_enabled
-            await msg.channel.send(f"Search functionality is now {'enabled' if search_enabled else 'disabled'}.")
-            return  # Do not add the command to the bot history or process further
-        elif command == "!clear_history":
-            clear_history_used = True
-            message_history[msg.channel.id].clear()
-            await msg.channel.send("Message history has been cleared.")
-            return  # Do not add the command to the bot history or process further
-        elif command == "!show_history_size":
-            history_size = len(message_history.get(msg.channel.id, []))
-            await msg.channel.send(f"Current history size: {history_size}")
-            return
+        if msg.content:
+            command = msg.content.lower().split()[0]
+            if command == "!toggle_search":
+                search_enabled = not search_enabled
+                await msg.channel.send(f"Search functionality is now {'enabled' if search_enabled else 'disabled'}.")
+                return  # Do not add the command to the bot history or process further
+            elif command == "!clear_history":
+                clear_history_used = True
+                message_history[msg.channel.id].clear()
+                await msg.channel.send("Message history has been cleared.")
+                return  # Do not add the command to the bot history or process further
+            elif command == "!show_history_size":
+                history_size = len(message_history.get(msg.channel.id, []))
+                await msg.channel.send(f"Current history size: {history_size}")
+                return
 
-        elif command == "!search":
-            search_enabled = True            
+            elif command == "!search":
+                search_enabled = True            
 
         # Loop through message history and create MsgNodes
         for curr_msg in message_history[msg.channel.id]:
             curr_msg_text = curr_msg.embeds[0].description if curr_msg.embeds and curr_msg.author.bot else curr_msg.content
-            if curr_msg_text.startswith(discord_client.user.mention):
+            if curr_msg_text and curr_msg_text.startswith(discord_client.user.mention):
                 curr_msg_text = curr_msg_text[len(discord_client.user.mention) :].lstrip()
             curr_msg_content = [{"type": "text", "text": curr_msg_text}] if curr_msg_text else []
             curr_msg_images = [
@@ -287,7 +289,7 @@ async def on_message(msg):
                 break
 
         # Query Searx for the user's message, if search is enabled
-        if search_enabled:
+        if search_enabled and reply_chain[0]["content"] and reply_chain[0]["content"][0]["text"]:
             searx_summary = await query_searx(reply_chain[0]["content"][0]["text"])
             if searx_summary:
                 reply_chain[0]["content"][0]["text"] += f" [Search and retrieval augmentation data for summarization and link citation (provide full links formatted for discord when citing): {searx_summary}]"
@@ -305,6 +307,12 @@ async def on_message(msg):
                         if resp.status == 200:
                             image_data = await resp.read()
                             base64_image = base64.b64encode(image_data).decode("utf-8")
+                            reply_chain[0]["content"].append(
+                                {
+                                    "type": "text",
+                                    "text": "Describe this image in a very detailed and intricate way, as if you were describing it to a blind person for reasons of accessibility."
+                                }
+                            ),
                             reply_chain[0]["content"].append(
                                 {
                                     "type": "image_url",
