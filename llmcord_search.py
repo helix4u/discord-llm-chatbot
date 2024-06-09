@@ -51,7 +51,6 @@ async def query_searx(query):
         print(f"An error occurred while fetching data: {e}")
     return None
 
-
 # Function to generate a completion using the OpenAI client
 def generate_completion(prompt):
     response = llm_client.completions.create(
@@ -129,17 +128,21 @@ def get_system_prompt():
         }
     ]
 
-# Function to scrape a website asynchronously
+# Function to scrape a website asynchronously with a Chrome user-agent
 async def scrape_website(url):
     print(f"Scraping website: {url}")
-    async with aiohttp.ClientSession() as session:
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    async with aiohttp.ClientSession(headers=headers) as session:
         try:
             async with session.get(url) as response:
                 if response.status == 200:
                     text = await response.text()
                     soup = BeautifulSoup(text, 'html.parser')
-                    text = soup.get_text()
-                    return text
+                    raw_text = soup.get_text(separator='\n')
+                    cleaned_text = clean_text(raw_text)
+                    return cleaned_text
                 else:
                     print("Failed to fetch data from website.")
         except Exception as e:
@@ -152,11 +155,31 @@ def detect_urls(message_text):
     urls = url_pattern.findall(message_text)
     return urls
 
+# Function to clean up the text
+def clean_text(text):
+    # Remove HTML tags
+    clean = re.compile('<.*?>')
+    text = re.sub(clean, '', text)
+
+    # Remove multiple newlines and excess whitespace
+    text = re.sub('\n+', '\n', text).strip()
+
+    # Replace unnecessary characters or patterns
+    patterns_to_replace = [
+        (r'\s+', ' '),   # replace multiple whitespace with single space
+        (r'\[.*?\]', ''),  # remove anything inside square brackets
+        (r'\s*Share\s*', ''),  # remove occurrences of "Share"
+    ]
+
+    for pattern, repl in patterns_to_replace:
+        text = re.sub(pattern, repl, text)
+
+    return text
+
 # Discord client event handler for new messages
 @discord_client.event
 async def on_message(msg):
     logging.info(f"Received message: {msg.content} from {msg.author.name}")
-    # The initial message filtering remains the same...
 
     # Check for URLs in the message and scrape if found
     urls_detected = detect_urls(msg.content)
@@ -164,7 +187,8 @@ async def on_message(msg):
     for url in urls_detected:
         webpage_text = await scrape_website(url)
         if webpage_text:
-            webpage_texts.append(webpage_text)
+            cleaned_text = clean_text(webpage_text)
+            webpage_texts.append(cleaned_text)
 
     # Filter out unwanted messages
     if (
@@ -268,7 +292,7 @@ async def on_message(msg):
             if searx_summary:
                 reply_chain[0]["content"][0]["text"] += f" [Search and retrieval augmentation data for summarization and link citation (provide full links formatted for discord when citing): {searx_summary}]"
         
-        # Inject webpage summaries into the history
+        # Inject cleaned webpage summaries into the history
         for webpage_text in webpage_texts:
             reply_chain[0]["content"][0]["text"] += f"\n[Webpage Scrape for Summarization: {webpage_text}]"
 
