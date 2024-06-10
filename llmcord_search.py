@@ -41,7 +41,10 @@ async def query_searx(query):
                     title = result.get('title', 'No title')
                     url = result.get('url', 'No URL')
                     content = result.get('content', 'No content')
-                    summarized_info.append(f"Title: {title}\nURL: {url}\nContent: {content}")
+                    #full_content = await scrape_website(url) if url != 'No URL' else content
+                    #cleaned_content = clean_text(full_content)
+                    cleaned_content = clean_text(content)
+                    summarized_info.append(f"Title: {title}\nURL: {url}\nContent: {cleaned_content}")
                 return "\n\n".join(summarized_info)
             else:
                 print("No results found in Searx response.")
@@ -118,13 +121,27 @@ def get_system_prompt():
         return [
             {
                 "role": "system",
-                "content": f"{os.environ['CUSTOM_SYSTEM_PROMPT']}\nToday's date: {datetime.now().strftime('%B %d %Y')}",
+                "content": (
+                    "A chat between a curious user and an artificial intelligence assistant. "
+                    "The assistant gives helpful, detailed, and polite answers to the user's questions. "
+                    "USER: Hi\nASSISTANT: Hello.\n"
+                    "USER: Who are you?\nASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra. "
+                    "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n"
+                    f"Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}"
+                ),
             }
         ]
     return [
         {
             "role": "system",
-            "content": f"{os.environ['CUSTOM_SYSTEM_PROMPT']}\nUser's names are their Discord IDs and should be typed as '<@ID>'.\nToday's date: {datetime.now().strftime('%B %d %Y')}",
+            "content": (
+                "A chat between a curious user and an artificial intelligence assistant. "
+                "The assistant gives helpful, detailed, and polite answers to the user's questions. "
+                "USER: Hi\nASSISTANT: Hello.\n"
+                "USER: Who are you?\nASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra."
+                "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n"
+                f"Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}"
+            ),
         }
     ]
 
@@ -180,6 +197,7 @@ def clean_text(text):
 @discord_client.event
 async def on_message(msg):
     logging.info(f"Received message: {msg.content} from {msg.author.name}")
+    user_warnings = set()
 
     # Check for URLs in the message and scrape if found
     urls_detected = detect_urls(msg.content)
@@ -199,6 +217,108 @@ async def on_message(msg):
         or msg.channel.type == discord.ChannelType.forum
     ):
         return
+
+    # Ensure message history is initialized for the channel
+    if msg.channel.id not in message_history:
+        message_history[msg.channel.id] = []
+
+    # Check if the message contains images
+    if msg.attachments:
+        for attachment in msg.attachments:
+            if "image" in attachment.content_type:
+                # Clear history
+                message_history[msg.channel.id].clear()
+                msg_nodes.clear()
+                in_progress_msg_ids.clear()
+
+                image_url = attachment.url
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(image_url) as resp:
+                        if resp.status == 200:
+                            image_data = await resp.read()
+                            base64_image = base64.b64encode(image_data).decode("utf-8")
+                            text_content = msg.content if msg.content else ""
+                            reply_chain = [
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "A chat between a curious user and an artificial intelligence assistant. "
+                                        "The assistant is equippped with a vision model that analyzes the base64 information that the user provides in a message directly following thiers that resembles an image description. The user is blind to this and need help. The assistant gives helpful, detailed, and polite answers to the user's questions. "
+                                        "USER: Hi\nASSISTANT: Hello.\n"
+                                        "USER: Who are you?\nASSISTANT: I am Saṃsāra. I am an intelligent assistant. "
+                                        "I always provide well-reasoned answers that are both correct and helpful.\n"
+                                        f"Today's date: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}"
+                                    ),
+                                },
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "text",
+                                            "text": " Describe this image in a very detailed and intricate way, as if you were describing it to a blind person for reasons of accessibility. Begin your response with: \"'Image Description':, Object of image's name, \" followed by the description. User's prompt/question regarding the image (Optional input): " + text_content
+                                        },
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": f"data:image/jpeg;base64,{base64_image}"
+                                            },
+                                        }
+                                    ]
+                                }
+                            ]
+
+                            logging.info(f"Message contains image. Clearing history and preparing to respond to image. Reply chain length: {len(reply_chain)}")
+
+                            response_msgs = []
+                            response_msg_contents = []
+                            prev_content = None
+                            edit_msg_task = None
+                            async for chunk in await llm_client.chat.completions.create(
+                                model=os.environ["LLM"],
+                                messages=reply_chain,
+                                max_tokens=MAX_COMPLETION_TOKENS,
+                                stream=True,
+                            ):
+                                curr_content = chunk.choices[0].delta.content or ""
+                                if prev_content:
+                                    if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
+                                        reply_msg = msg if not response_msgs else response_msgs[-1]
+                                        embed = discord.Embed(description="⏳", color=EMBED_COLOR["incomplete"])
+                                        for warning in sorted(user_warnings):
+                                            embed.add_field(name=warning, value="", inline=False)
+                                        response_msgs += [
+                                            await reply_msg.reply(
+                                                embed=embed,
+                                                silent=True,
+                                            )
+                                        ]
+                                        in_progress_msg_ids.append(response_msgs[-1].id)
+                                        last_msg_task_time = datetime.now().timestamp()
+                                        response_msg_contents += [""]
+                                    response_msg_contents[-1] += prev_content
+                                    final_msg_edit = len(response_msg_contents[-1] + curr_content) > EMBED_MAX_LENGTH or curr_content == ""
+                                    if final_msg_edit or (not edit_msg_task or edit_msg_task.done()) and datetime.now().timestamp() - last_msg_task_time >= len(in_progress_msg_ids) / EDITS_PER_SECOND:
+                                        while edit_msg_task and not edit_msg_task.done():
+                                            await asyncio.sleep(0)
+                                        if response_msg_contents[-1].strip():
+                                            embed.description = response_msg_contents[-1]
+                                        embed.color = EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"]
+                                        edit_msg_task = asyncio.create_task(response_msgs[-1].edit(embed=embed))
+                                        last_msg_task_time = datetime.now().timestamp()
+                                prev_content = curr_content
+
+                            # Create MsgNode(s) for bot reply message(s) (can be multiple if bot reply was long)
+                            for response_msg in response_msgs:
+                                msg_nodes[response_msg.id] = MsgNode(
+                                    {
+                                        "role": "assistant",
+                                        "content": "".join(response_msg_contents),
+                                        "name": str(discord_client.user.id),
+                                    },
+                                    replied_to=msg_nodes[msg.id],
+                                )
+                                in_progress_msg_ids.remove(response_msg.id)
+                return
 
     # Store search toggle and history clear command usage
     search_enabled = False
@@ -222,7 +342,6 @@ async def on_message(msg):
             search_enabled = True
 
     # Update message history
-    message_history.setdefault(msg.channel.id, [])
     message_history[msg.channel.id].append(msg)
     message_history[msg.channel.id] = message_history[msg.channel.id][-MAX_MESSAGES:]
 
@@ -278,7 +397,6 @@ async def on_message(msg):
 
         # Build reply chain and set user warnings
         reply_chain = []
-        user_warnings = set()
         for curr_node_id in sorted(msg_nodes.keys(), reverse=True):
             curr_node = msg_nodes[curr_node_id]
             reply_chain += [curr_node.msg]
@@ -292,11 +410,11 @@ async def on_message(msg):
         if search_enabled and reply_chain[0]["content"] and reply_chain[0]["content"][0]["text"]:
             searx_summary = await query_searx(reply_chain[0]["content"][0]["text"])
             if searx_summary:
-                reply_chain[0]["content"][0]["text"] += f" [Search and retrieval augmentation data for summarization and link citation (provide full links formatted for discord when citing): {searx_summary}]"
+                reply_chain[0]["content"][0]["text"] += f" [Search and retrieval augmentation data for summarization and link citation (provide full links formatted for discord when citing): {searx_summary} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)]"
         
         # Inject cleaned webpage summaries into the history
         for webpage_text in webpage_texts:
-            reply_chain[0]["content"][0]["text"] += f"\n[Webpage Scrape for Summarization: {webpage_text}]"
+            reply_chain[0]["content"][0]["text"] += f"\n[Webpage Scrape for Summarization: {webpage_text} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)]"
 
         # Handle images sent by the user
         for attachment in msg.attachments:
