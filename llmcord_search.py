@@ -125,9 +125,9 @@ def get_system_prompt():
                     "A chat between a curious user and an artificial intelligence assistant. "
                     "The assistant gives helpful, detailed, and polite answers to the user's questions. "
                     f"Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}\n "
-                    "USER: Hi\n ASSISTANT: Hello.\n "
+                    "USER: Hi\n ASSISTANT: Hello.\n</s> "
                     "USER: Who are you?\n ASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra.\n "
-                    "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n "
+                    "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n</s> "
                 ),
             }
         ]
@@ -137,10 +137,11 @@ def get_system_prompt():
             "content": (
                 "A chat between a curious user and an artificial intelligence assistant. "
                 "The assistant gives helpful, detailed, and polite answers to the user's questions. "
-                "USER: Hi\n ASSISTANT: Hello.\n "
+                "USER: Hi\n ASSISTANT: Hello.\n</s> "
                 "USER: Who are you?\n ASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra.\n "
-                "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n "
+                "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n</s> "
                 f"Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}\n "
+                "......"
             ),
         }
     ]
@@ -248,6 +249,7 @@ async def on_message(msg):
                                         "USER: Who are you?\n ASSISTANT: I am Saṃsāra. I am an intelligent assistant.\n "
                                         "I always provide well-reasoned answers that are both correct and helpful.\n</s> "
                                         f"Today's date: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}"
+                                        "......"
                                     ),
                                 },
                                 {
@@ -258,6 +260,7 @@ async def on_message(msg):
                                             "text": "Base Instruction: \"Describe the image in a very detailed and intricate way, as if you were describing it to a blind person for reasons of accessibility. Begin your response with: \"'Image Description':, \". "
                                             "Extended Instruction: \"Below is a user comment or request. Write a response that appropriately completes the request.\". "
                                             "User's prompt/question regarding the image (Optional input): " + text_content + "\n "
+                                            "......"
                                         },
                                         {
                                             "type": "image_url",
@@ -494,7 +497,7 @@ async def on_message(msg):
                     "content": "".join(response_msg_contents),
                     "name": str(discord_client.user.id),
                 },
-                replied_to=msg_nodes[msg.id],
+                replied_to=msg_nodes.get(msg.id, None),
             )
             in_progress_msg_ids.remove(response_msg.id)
 
