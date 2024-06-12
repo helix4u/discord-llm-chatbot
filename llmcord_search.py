@@ -59,8 +59,8 @@ def generate_completion(prompt):
     response = llm_client.completions.create(
         model="MaziyarPanahi/WizardLM-2-7B-GGUF/WizardLM-2-7B.Q4_K_M.gguf",
         prompt=prompt,
-        temperature=0.7,
-        max_tokens=2048,
+        temperature=0.8,
+        max_tokens=4096,
         top_p=1.0,
         frequency_penalty=0.0,
         presence_penalty=0.0
@@ -124,10 +124,10 @@ def get_system_prompt():
                 "content": (
                     "A chat between a curious user and an artificial intelligence assistant. "
                     "The assistant gives helpful, detailed, and polite answers to the user's questions. "
-                    "USER: Hi\nASSISTANT: Hello.\n"
-                    "USER: Who are you?\nASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra. "
-                    "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n"
-                    f"Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}"
+                    f"Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}\n "
+                    "USER: Hi\n ASSISTANT: Hello.\n "
+                    "USER: Who are you?\n ASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra.\n "
+                    "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n "
                 ),
             }
         ]
@@ -137,10 +137,10 @@ def get_system_prompt():
             "content": (
                 "A chat between a curious user and an artificial intelligence assistant. "
                 "The assistant gives helpful, detailed, and polite answers to the user's questions. "
-                "USER: Hi\nASSISTANT: Hello.\n"
-                "USER: Who are you?\nASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra."
-                "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n"
-                f"Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}"
+                "USER: Hi\n ASSISTANT: Hello.\n "
+                "USER: Who are you?\n ASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra.\n "
+                "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n "
+                f"Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}\n "
             ),
         }
     ]
@@ -243,10 +243,10 @@ async def on_message(msg):
                                     "role": "system",
                                     "content": (
                                         "A chat between a curious user and an artificial intelligence assistant. "
-                                        "The assistant is equippped with a vision model that analyzes the base64 information that the user provides in a message directly following thiers that resembles an image description. The user is blind to this and need help. The assistant gives helpful, detailed, and polite answers to the user's questions. "
-                                        "USER: Hi\nASSISTANT: Hello.\n"
-                                        "USER: Who are you?\nASSISTANT: I am Saṃsāra. I am an intelligent assistant. "
-                                        "I always provide well-reasoned answers that are both correct and helpful.\n"
+                                        "The assistant is equippped with a vision model that analyzes the image information that the user provides in the message directly following thier's. It resembles an image description. The description is info from the vision model Use it to describe the image to the user. The assistant gives helpful, detailed, and polite answers to the user's questions. "
+                                        "USER: Hi\n ASSISTANT: Hello.\n</s> "
+                                        "USER: Who are you?\n ASSISTANT: I am Saṃsāra. I am an intelligent assistant.\n "
+                                        "I always provide well-reasoned answers that are both correct and helpful.\n</s> "
                                         f"Today's date: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}"
                                     ),
                                 },
@@ -255,7 +255,9 @@ async def on_message(msg):
                                     "content": [
                                         {
                                             "type": "text",
-                                            "text": " Describe this image in a very detailed and intricate way, as if you were describing it to a blind person for reasons of accessibility. Begin your response with: \"'Image Description':, Object of image's name, \" followed by the description. User's prompt/question regarding the image (Optional input): " + text_content
+                                            "text": "Base Instruction: \"Describe the image in a very detailed and intricate way, as if you were describing it to a blind person for reasons of accessibility. Begin your response with: \"'Image Description':, \". "
+                                            "Extended Instruction: \"Below is a user comment or request. Write a response that appropriately completes the request.\". "
+                                            "User's prompt/question regarding the image (Optional input): " + text_content + "\n "
                                         },
                                         {
                                             "type": "image_url",
@@ -410,11 +412,11 @@ async def on_message(msg):
         if search_enabled and reply_chain[0]["content"] and reply_chain[0]["content"][0]["text"]:
             searx_summary = await query_searx(reply_chain[0]["content"][0]["text"])
             if searx_summary:
-                reply_chain[0]["content"][0]["text"] += f" [Search and retrieval augmentation data for summarization and link citation (provide full links formatted for discord when citing): {searx_summary} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)]"
+                reply_chain[0]["content"][0]["text"] += f" [Search and retrieval augmentation data for summarization and link citation (provide full links formatted for discord when citing): {searx_summary} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)].\n "
         
         # Inject cleaned webpage summaries into the history
         for webpage_text in webpage_texts:
-            reply_chain[0]["content"][0]["text"] += f"\n[Webpage Scrape for Summarization: {webpage_text} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)]"
+            reply_chain[0]["content"][0]["text"] += f"\n[Webpage Scrape for Summarization: {webpage_text} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)]\n "
 
         # Handle images sent by the user
         for attachment in msg.attachments:
@@ -430,7 +432,7 @@ async def on_message(msg):
                                     "type": "text",
                                     "text": "Describe this image in a very detailed and intricate way, as if you were describing it to a blind person for reasons of accessibility."
                                 }
-                            ),
+                            )
                             reply_chain[0]["content"].append(
                                 {
                                     "type": "image_url",
