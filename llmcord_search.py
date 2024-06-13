@@ -7,99 +7,45 @@ from bs4 import BeautifulSoup
 import discord
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
-import aiohttp  # For asynchronous web requests
-import re  # For URL detection
-import requests
-import base64  # For image encoding
+import aiohttp
+import re
+import base64
 
+# Load environment variables from a .env file
 load_dotenv()
+
+# Set up logging to display messages with time stamps
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s.%(msecs)03d %(levelname)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-# Initialize the OpenAI client with your local AI server details
-llm_client = AsyncOpenAI(base_url="http://localhost:1234/v1", api_key="lm-studio")
+# Initialize the OpenAI client with the URL of your local AI server
+llm_client = AsyncOpenAI(base_url=os.getenv("LOCAL_SERVER_URL", "http://localhost:1234/v1"), api_key="lm-studio")
 
-# Function to query Searx search engine
-async def query_searx(query):
-    print(f"Querying Searx for: {query}")
-    searx_url = "http://192.168.1.3:9092/search"
-    params = {
-        'q': query,
-        'format': 'json',
-        'language': 'en-US',
-    }
-    try:
-        response = requests.get(searx_url, params=params, timeout=5)
-        if response.status_code == 200:
-            results = response.json()
-            if 'results' in results:
-                summarized_info = []
-                for result in results['results'][:10]:
-                    title = result.get('title', 'No title')
-                    url = result.get('url', 'No URL')
-                    content = result.get('content', 'No content')
-                    #full_content = await scrape_website(url) if url != 'No URL' else content
-                    #cleaned_content = clean_text(full_content)
-                    cleaned_content = clean_text(content)
-                    summarized_info.append(f"Title: {title}\nURL: {url}\nContent: {cleaned_content}")
-                return "\n\n".join(summarized_info)
-            else:
-                print("No results found in Searx response.")
-        else:
-            print("Failed to fetch data from Searx.")
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred while fetching data: {e}")
-    return None
+# Environment variable validation and fallback
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+if not DISCORD_BOT_TOKEN:
+    raise ValueError("DISCORD_BOT_TOKEN environment variable is missing")
 
-# Function to generate a completion using the OpenAI client
-def generate_completion(prompt):
-    response = llm_client.completions.create(
-        model="MaziyarPanahi/WizardLM-2-7B-GGUF/WizardLM-2-7B.Q4_K_M.gguf",
-        prompt=prompt,
-        temperature=0.8,
-        max_tokens=4096,
-        top_p=1.0,
-        frequency_penalty=0.0,
-        presence_penalty=0.0
-    )
-    return response.choices[0].text.strip()
-
-# Load configuration for different LLM models
-LLM_CONFIG = {
-    "gpt": {
-        "api_key": os.environ["OPENAI_API_KEY"],
-        "base_url": "https://api.openai.com/v1",
-    },
-    "mistral": {
-        "api_key": os.environ["MISTRAL_API_KEY"],
-        "base_url": "https://api.mistral.ai/v1",
-    },
-    "local": {
-        "api_key": "Not used",
-        "base_url": os.environ["LOCAL_SERVER_URL"],
-    },
-}
-LLM_VISION_SUPPORT = "vision" in os.environ["LLM"]
-MAX_COMPLETION_TOKENS = 2048
-
-# Load allowed channel and role IDs from environment variables
-ALLOWED_CHANNEL_IDS = [int(i) for i in os.environ["ALLOWED_CHANNEL_IDS"].split(",") if i]
-ALLOWED_ROLE_IDS = [int(i) for i in os.environ["ALLOWED_ROLE_IDS"].split(",") if i]
-MAX_IMAGES = int(os.environ["MAX_IMAGES"]) if LLM_VISION_SUPPORT else 0
-MAX_IMAGE_WARNING = f"⚠️ Max {MAX_IMAGES} image{'' if MAX_IMAGES == 1 else 's'} per message" if MAX_IMAGES > 0 else ""
-MAX_MESSAGES = int(os.environ["MAX_MESSAGES"])
-MAX_MESSAGE_WARNING = f"⚠️ Only using last {MAX_MESSAGES} messages"
+ALLOWED_CHANNEL_IDS = [int(i) for i in os.getenv("ALLOWED_CHANNEL_IDS", "").split(",") if i]
+ALLOWED_ROLE_IDS = [int(i) for i in os.getenv("ALLOWED_ROLE_IDS", "").split(",") if i]
+MAX_IMAGES = int(os.getenv("MAX_IMAGES", 0))
+MAX_MESSAGES = int(os.getenv("MAX_MESSAGES", 10))
 
 EMBED_COLOR = {"incomplete": discord.Color.orange(), "complete": discord.Color.green()}
 EMBED_MAX_LENGTH = 4096
 EDITS_PER_SECOND = 1.3
+MAX_COMPLETION_TOKENS = 2048
 
-# Initialize Discord client with intents to access message content
+MAX_IMAGE_WARNING = f"⚠️ Max {MAX_IMAGES} image{'' if MAX_IMAGES == 1 else 's'} per message" if MAX_IMAGES > 0 else ""
+MAX_MESSAGE_WARNING = f"⚠️ Only using last {MAX_MESSAGES} messages"
+
+# Initialize Discord client with intents to access message content and reactions
 intents = discord.Intents.default()
 intents.message_content = True
+intents.reactions = True
 discord_client = discord.Client(intents=intents)
 
 # Dictionaries to store message nodes and in-progress message IDs
@@ -115,9 +61,8 @@ class MsgNode:
         self.replied_to = replied_to
 
 # Function to get the system prompt
-def get_system_prompt():
-    if os.environ["LLM"] == "gpt-4-vision-preview" or "mistral" in os.environ["LLM"] or "local" in os.environ["LLM"]:
-        # Temporary fix until gpt-4-vision-preview, Mistral API and LM Studio support message.name
+def get_system_prompt() -> list:
+    if os.getenv("LLM") in ["gpt-4-vision-preview", "mistral", "local"]:
         return [
             {
                 "role": "system",
@@ -147,8 +92,8 @@ def get_system_prompt():
     ]
 
 # Function to scrape a website asynchronously with a Chrome user-agent
-async def scrape_website(url):
-    print(f"Scraping website: {url}")
+async def scrape_website(url: str) -> str:
+    logging.info(f"Scraping website: {url}")
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
@@ -159,22 +104,20 @@ async def scrape_website(url):
                     text = await response.text()
                     soup = BeautifulSoup(text, 'html.parser')
                     raw_text = soup.get_text(separator='\n')
-                    cleaned_text = clean_text(raw_text)
-                    return cleaned_text
+                    return clean_text(raw_text)
                 else:
-                    print("Failed to fetch data from website.")
+                    logging.error(f"Failed to fetch data from {url}. Status code: {response.status}")
         except Exception as e:
-            print(f"An error occurred while fetching data: {e}")
-    return None
+            logging.error(f"An error occurred while fetching data from {url}: {e}")
+    return ""
 
 # Function to detect URLs in a message using regex
-def detect_urls(message_text):
+def detect_urls(message_text: str) -> list:
     url_pattern = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
-    urls = url_pattern.findall(message_text)
-    return urls
+    return url_pattern.findall(message_text)
 
 # Function to clean up the text
-def clean_text(text):
+def clean_text(text: str) -> str:
     # Remove HTML tags
     clean = re.compile('<.*?>')
     text = re.sub(clean, '', text)
@@ -194,20 +137,89 @@ def clean_text(text):
 
     return text
 
+# Function to chunk text into smaller parts
+def chunk_text(text: str, max_length: int = 4000) -> list:
+    chunks = []
+    while len(text) > max_length:
+        chunk = text[:max_length]
+        last_space = chunk.rfind(' ')
+        if last_space != -1:
+            chunk = chunk[:last_space]
+        chunks.append(chunk)
+        text = text[len(chunk):]
+    chunks.append(text)
+    return chunks
+
+# Function to query Searx search engine
+async def query_searx(query: str) -> list:
+    logging.info(f"Querying Searx for: {query}")
+    searx_url = "http://192.168.1.3:9092/search"
+    params = {
+        'q': query,
+        'format': 'json',
+        'language': 'en-US',
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(searx_url, params=params, timeout=5) as response:
+                if response.status == 200:
+                    results = await response.json()
+                    return results.get('results', [])[:5]  # Return first 5 results
+                logging.error("Failed to fetch data from Searx.")
+    except aiohttp.ClientError as e:
+        logging.error(f"An error occurred while fetching data from Searx: {e}")
+    return []
+
+# Function to generate a completion using the OpenAI client
+async def generate_completion(prompt: str) -> str:
+    try:
+        response = await llm_client.completions.create(
+            model="MaziyarPanahi/WizardLM-2-7B-GGUF/WizardLM-2-7B.Q4_K_M.gguf",
+            prompt=prompt,
+            temperature=0.8,
+            max_tokens=2048,
+            top_p=1.0,
+            frequency_penalty=0.0,
+            presence_penalty=0.0
+        )
+        return response.choices[0].text.strip()
+    except Exception as e:
+        logging.error(f"Failed to generate completion: {e}")
+        return "Sorry, an error occurred while generating the response."
+
+# Function to handle the search and scrape command
+async def search_and_summarize(query: str, channel: discord.TextChannel):
+    search_results = await query_searx(query)
+    if search_results:
+        for result in search_results:
+            url = result.get('url', 'No URL')
+            if url != 'No URL':
+                webpage_text = await scrape_website(url)
+                if webpage_text:
+                    cleaned_content = clean_text(webpage_text)
+                    summary_prompt = f"\n[Webpage Scrape for Summarization: {cleaned_content} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)]\n "
+                    summary = await generate_completion(summary_prompt)
+                    chunks = chunk_text(summary)
+                    for chunk in chunks:
+                        embed = discord.Embed(
+                            title=result.get('title', 'No title'),
+                            description=chunk,
+                            url=url,
+                            color=discord.Color.blue()
+                        )
+                        await channel.send(embed=embed)
+    else:
+        await channel.send("No search results found.")
+
 # Discord client event handler for new messages
 @discord_client.event
-async def on_message(msg):
+async def on_message(msg: discord.Message):
     logging.info(f"Received message: {msg.content} from {msg.author.name}")
     user_warnings = set()
 
     # Check for URLs in the message and scrape if found
     urls_detected = detect_urls(msg.content)
-    webpage_texts = []
-    for url in urls_detected:
-        webpage_text = await scrape_website(url)
-        if webpage_text:
-            cleaned_text = clean_text(webpage_text)
-            webpage_texts.append(cleaned_text)
+    webpage_texts = await asyncio.gather(*(scrape_website(url) for url in urls_detected))
 
     # Filter out unwanted messages
     if (
@@ -244,7 +256,7 @@ async def on_message(msg):
                                     "role": "system",
                                     "content": (
                                         "A chat between a curious user and an artificial intelligence assistant. "
-                                        "The assistant is equippped with a vision model that analyzes the image information that the user provides in the message directly following thier's. It resembles an image description. The description is info from the vision model Use it to describe the image to the user. The assistant gives helpful, detailed, and polite answers to the user's questions. "
+                                        "The assistant is equipped with a vision model that analyzes the image information that the user provides in the message directly following theirs. It resembles an image description. The description is info from the vision model Use it to describe the image to the user. The assistant gives helpful, detailed, and polite answers to the user's questions. "
                                         "USER: Hi\n ASSISTANT: Hello.\n</s> "
                                         "USER: Who are you?\n ASSISTANT: I am Saṃsāra. I am an intelligent assistant.\n "
                                         "I always provide well-reasoned answers that are both correct and helpful.\n</s> "
@@ -279,7 +291,7 @@ async def on_message(msg):
                             prev_content = None
                             edit_msg_task = None
                             async for chunk in await llm_client.chat.completions.create(
-                                model=os.environ["LLM"],
+                                model=os.getenv("LLM"),
                                 messages=reply_chain,
                                 max_tokens=MAX_COMPLETION_TOKENS,
                                 stream=True,
@@ -320,7 +332,7 @@ async def on_message(msg):
                                         "content": "".join(response_msg_contents),
                                         "name": str(discord_client.user.id),
                                     },
-                                    replied_to=msg_nodes[msg.id],
+                                    replied_to=msg_nodes.get(msg.id, None),
                                 )
                                 in_progress_msg_ids.remove(response_msg.id)
                 return
@@ -346,6 +358,12 @@ async def on_message(msg):
         elif command == "!search":
             search_enabled = True
 
+    # Check for new command: !sns
+    if msg.content.startswith("!sns "):
+        query = msg.content[len("!sns "):].strip()
+        await search_and_summarize(query, msg.channel)
+        return
+
     # Update message history
     message_history[msg.channel.id].append(msg)
     message_history[msg.channel.id] = message_history[msg.channel.id][-MAX_MESSAGES:]
@@ -367,15 +385,14 @@ async def on_message(msg):
                 history_size = len(message_history.get(msg.channel.id, []))
                 await msg.channel.send(f"Current history size: {history_size}")
                 return
-
             elif command == "!search":
-                search_enabled = True            
+                search_enabled = True
 
         # Loop through message history and create MsgNodes
         for curr_msg in message_history[msg.channel.id]:
             curr_msg_text = curr_msg.embeds[0].description if curr_msg.embeds and curr_msg.author.bot else curr_msg.content
             if curr_msg_text and curr_msg_text.startswith(discord_client.user.mention):
-                curr_msg_text = curr_msg_text[len(discord_client.user.mention) :].lstrip()
+                curr_msg_text = curr_msg_text[len(discord_client.user.mention):].lstrip()
             curr_msg_content = [{"type": "text", "text": curr_msg_text}] if curr_msg_text else []
             curr_msg_images = [
                 {
@@ -386,9 +403,8 @@ async def on_message(msg):
                 if "image" in att.content_type
             ]
             curr_msg_content += curr_msg_images[:MAX_IMAGES]
-            if "mistral" in os.environ["LLM"]:
-                # Temporary fix until Mistral API supports message.content as a list
-                curr_msg_content = curr_msg_text
+            if os.getenv("LLM") == "mistral":
+                curr_msg_content = curr_msg_text  # Temporary fix until Mistral API supports message.content as a list
             curr_msg_role = "assistant" if curr_msg.author == discord_client.user else "user"
             msg_nodes[curr_msg.id] = MsgNode(
                 {
@@ -415,8 +431,8 @@ async def on_message(msg):
         if search_enabled and reply_chain[0]["content"] and reply_chain[0]["content"][0]["text"]:
             searx_summary = await query_searx(reply_chain[0]["content"][0]["text"])
             if searx_summary:
-                reply_chain[0]["content"][0]["text"] += f" [Search and retrieval augmentation data for summarization and link citation (provide full links formatted for discord when citing): {searx_summary} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)].\n "
-        
+                reply_chain[0]["content"][0]["text"] += f" [System provided search and retrieval augmentation data for use in crafting summarization of and link citation:] \"{searx_summary}\". [Use this search and augmentation data for summarization and link citation. Provide full links, formatted for discord, when citing].\n "
+
         # Inject cleaned webpage summaries into the history
         for webpage_text in webpage_texts:
             reply_chain[0]["content"][0]["text"] += f"\n[Webpage Scrape for Summarization: {webpage_text} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)]\n "
@@ -456,7 +472,7 @@ async def on_message(msg):
         prev_content = None
         edit_msg_task = None
         async for chunk in await llm_client.chat.completions.create(
-            model=os.environ["LLM"],
+            model=os.getenv("LLM"),
             messages=get_system_prompt() + reply_chain[::-1],
             max_tokens=MAX_COMPLETION_TOKENS,
             stream=True,
@@ -501,9 +517,23 @@ async def on_message(msg):
             )
             in_progress_msg_ids.remove(response_msg.id)
 
+# Event handler for raw reactions added to messages
+@discord_client.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    logging.debug(f"Raw reaction added: {payload.emoji} by {payload.user_id} on message {payload.message_id}")
+    if payload.emoji.name == '❌':
+        channel = discord_client.get_channel(payload.channel_id)
+        if channel is None:
+            user = await discord_client.fetch_user(payload.user_id)
+            channel = await user.create_dm()
+        message = await channel.fetch_message(payload.message_id)
+        if message and message.author == discord_client.user:
+            await message.delete()
+            logging.debug("Message deleted.")
+
 # Main function to run the Discord client
 async def main():
-    await discord_client.start(os.environ["DISCORD_BOT_TOKEN"])
+    await discord_client.start(DISCORD_BOT_TOKEN)
 
 if __name__ == "__main__":
     asyncio.run(main())
