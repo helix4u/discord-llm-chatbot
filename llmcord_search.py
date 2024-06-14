@@ -216,6 +216,95 @@ async def search_and_summarize(query: str, channel: discord.TextChannel):
 async def on_message(msg: discord.Message):
     logging.info(f"Received message: {msg.content} from {msg.author.name}")
     user_warnings = set()
+    
+        # Check if the message contains the !AP command
+    if msg.content.startswith("!ap") and msg.attachments:
+        for attachment in msg.attachments:
+            if "image" in attachment.content_type:
+                image_url = attachment.url
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(image_url) as resp:
+                        if resp.status == 200:
+                            image_data = await resp.read()
+                            base64_image = base64.b64encode(image_data).decode("utf-8")
+                            # Choose a random celebrity or well-known character
+                            prompt = "Describe this image in a very detailed and intricate way, as if you were describing it to a blind person for reasons of accessibility. Replace the main character or element in the description with a random celebrity or popular well-known character. Use the {{name}} variable for this. Begin your response with \"AP Photo, {name}, \" followed by the description.\n "
+                            reply_chain = [
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "......"
+                                    )
+                                },
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "text",
+                                            "text": prompt
+                                        },
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": f"data:image/jpeg;base64,{base64_image}"
+                                            },
+                                        }
+                                    ]
+                                }
+                            ]
+
+                            logging.info(f"Processing !AP command. Reply chain length: {len(reply_chain)}")
+
+                            response_msgs = []
+                            response_msg_contents = []
+                            prev_content = None
+                            edit_msg_task = None
+                            async for chunk in await llm_client.chat.completions.create(
+                                model=os.getenv("LLM"),
+                                messages=reply_chain,
+                                max_tokens=MAX_COMPLETION_TOKENS,
+                                stream=True,
+                            ):
+                                curr_content = chunk.choices[0].delta.content or ""
+                                if prev_content:
+                                    if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
+                                        reply_msg = msg if not response_msgs else response_msgs[-1]
+                                        embed = discord.Embed(description="⏳", color=EMBED_COLOR["incomplete"])
+                                        for warning in sorted(user_warnings):
+                                            embed.add_field(name=warning, value="", inline=False)
+                                        response_msgs += [
+                                            await reply_msg.reply(
+                                                embed=embed,
+                                                silent=True,
+                                            )
+                                        ]
+                                        in_progress_msg_ids.append(response_msgs[-1].id)
+                                        last_msg_task_time = datetime.now().timestamp()
+                                        response_msg_contents += [""]
+                                    response_msg_contents[-1] += prev_content
+                                    final_msg_edit = len(response_msg_contents[-1] + curr_content) > EMBED_MAX_LENGTH or curr_content == ""
+                                    if final_msg_edit or (not edit_msg_task or edit_msg_task.done()) and datetime.now().timestamp() - last_msg_task_time >= len(in_progress_msg_ids) / EDITS_PER_SECOND:
+                                        while edit_msg_task and not edit_msg_task.done():
+                                            await asyncio.sleep(0)
+                                        if response_msg_contents[-1].strip():
+                                            embed.description = response_msg_contents[-1]
+                                        embed.color = EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"]
+                                        edit_msg_task = asyncio.create_task(response_msgs[-1].edit(embed=embed))
+                                        last_msg_task_time = datetime.now().timestamp()
+                                prev_content = curr_content
+
+                            # Create MsgNode(s) for bot reply message(s) (can be multiple if bot reply was long)
+                            for response_msg in response_msgs:
+                                msg_nodes[response_msg.id] = MsgNode(
+                                    {
+                                        "role": "assistant",
+                                        "content": "".join(response_msg_contents),
+                                        "name": str(discord_client.user.id),
+                                    },
+                                    replied_to=msg_nodes.get(msg.id, None),
+                                )
+                                in_progress_msg_ids.remove(response_msg.id)
+                return
 
     # Check for URLs in the message and scrape if found
     urls_detected = detect_urls(msg.content)
