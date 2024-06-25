@@ -10,6 +10,7 @@ from openai import AsyncOpenAI
 import aiohttp
 import re
 import base64
+from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
 
 # Load environment variables from a .env file
 load_dotenv()
@@ -52,6 +53,12 @@ discord_client = discord.Client(intents=intents)
 msg_nodes = {}
 in_progress_msg_ids = []
 message_history = {}
+
+# List of commands to ignore
+IGNORE_COMMANDS = [
+    "!dream", "!d", "!background", "!avatar",
+    "!help", "!info", "!ping", "!status", "!upscale"
+]
 
 # Class to represent a message node
 class MsgNode:
@@ -187,6 +194,19 @@ async def generate_completion(prompt: str) -> str:
         logging.error(f"Failed to generate completion: {e}")
         return "Sorry, an error occurred while generating the response."
 
+# Function to fetch YouTube transcript
+async def fetch_youtube_transcript(url: str) -> str:
+    try:
+        video_id = re.search(r'v=([^&]+)', url).group(1)
+        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        transcript_text = " ".join([entry['text'] for entry in transcript])
+        return transcript_text
+    except NoTranscriptFound:
+        logging.error("No transcript found for this video.")
+    except Exception as e:
+        logging.error(f"Failed to fetch transcript: {e}")
+    return ""
+
 # Function to handle the search and scrape command
 async def search_and_summarize(query: str, channel: discord.TextChannel):
     search_results = await query_searx(query)
@@ -197,7 +217,7 @@ async def search_and_summarize(query: str, channel: discord.TextChannel):
                 webpage_text = await scrape_website(url)
                 if webpage_text:
                     cleaned_content = clean_text(webpage_text)
-                    summary_prompt = f"\n[Webpage Scrape for Summarization: {cleaned_content} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)]\n "
+                    summary_prompt = f"\n[<system message>Webpage scrape to be used for summarization: {cleaned_content} Use this as search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)</system message>]\n "
                     summary = await generate_completion(summary_prompt)
                     chunks = chunk_text(summary)
                     for chunk in chunks:
@@ -216,8 +236,13 @@ async def search_and_summarize(query: str, channel: discord.TextChannel):
 async def on_message(msg: discord.Message):
     logging.info(f"Received message: {msg.content} from {msg.author.name}")
     user_warnings = set()
+
+    # Ignore messages that start with specific commands
+    if any(msg.content.lower().startswith(command) for command in IGNORE_COMMANDS):
+        logging.info(f"Ignored message: {msg.content}")
+        return
     
-        # Check if the message contains the !AP command
+    # Check if the message contains the !AP command
     if msg.content.startswith("!ap") and msg.attachments:
         for attachment in msg.attachments:
             if "image" in attachment.content_type:
@@ -228,7 +253,7 @@ async def on_message(msg: discord.Message):
                             image_data = await resp.read()
                             base64_image = base64.b64encode(image_data).decode("utf-8")
                             # Choose a random celebrity or well-known character
-                            prompt = "Describe this image in a very detailed and intricate way, as if you were describing it to a blind person for reasons of accessibility. Replace the main character or element in the description with a random celebrity or popular well-known character. Use the {{name}} variable for this. Begin your response with \"AP Photo, {name}, \" followed by the description.\n "
+                            prompt = "<system message>Describe this image in a very detailed and intricate way, as if you were describing it to a blind person for reasons of accessibility. Replace the main character or element in the description with a random celebrity or popular well-known character. Use the {name} variable for this. Begin your response with \"AP Photo, {name}, \" followed by the description.</system message>\n "
                             reply_chain = [
                                 {
                                     "role": "system",
@@ -262,7 +287,7 @@ async def on_message(msg: discord.Message):
                             async for chunk in await llm_client.chat.completions.create(
                                 model=os.getenv("LLM"),
                                 messages=reply_chain,
-                                max_tokens=MAX_COMPLETION_TOKENS,
+                                max_tokens=1024,
                                 stream=True,
                             ):
                                 curr_content = chunk.choices[0].delta.content or ""
@@ -309,6 +334,10 @@ async def on_message(msg: discord.Message):
     # Check for URLs in the message and scrape if found
     urls_detected = detect_urls(msg.content)
     webpage_texts = await asyncio.gather(*(scrape_website(url) for url in urls_detected))
+
+    # Check for YouTube URLs and fetch transcript if found
+    youtube_urls = [url for url in urls_detected if "youtube.com/watch" in url or "youtu.be/" in url]
+    youtube_transcripts = await asyncio.gather(*(fetch_youtube_transcript(url) for url in youtube_urls))
 
     # Filter out unwanted messages
     if (
@@ -382,7 +411,7 @@ async def on_message(msg: discord.Message):
                             async for chunk in await llm_client.chat.completions.create(
                                 model=os.getenv("LLM"),
                                 messages=reply_chain,
-                                max_tokens=MAX_COMPLETION_TOKENS,
+                                max_tokens=1024,
                                 stream=True,
                             ):
                                 curr_content = chunk.choices[0].delta.content or ""
@@ -524,7 +553,12 @@ async def on_message(msg: discord.Message):
 
         # Inject cleaned webpage summaries into the history
         for webpage_text in webpage_texts:
-            reply_chain[0]["content"][0]["text"] += f"\n[Webpage Scrape for Summarization: {webpage_text} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)]\n "
+            reply_chain[0]["content"][0]["text"] += f"\n[<system message>Webpage Scrape for Summarization: {webpage_text} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)</system message>]\n "
+
+        # Inject YouTube transcripts into the history
+        for youtube_transcript in youtube_transcripts:
+            if youtube_transcript:
+                reply_chain[0]["content"][0]["text"] += f"\n[<system message>YouTube Transcript: {youtube_transcript} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)</system message>]\n "
 
         # Handle images sent by the user
         for attachment in msg.attachments:
