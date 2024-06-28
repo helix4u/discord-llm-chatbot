@@ -269,18 +269,42 @@ async def handle_reminder_command(msg: discord.Message):
     try:
         parts = msg.content.split(maxsplit=2)
         if len(parts) < 3:
-            await msg.channel.send("Invalid format. Use `!remindme <time> <message>` Use formats like 1m, 1h, 2h2m, 30sec, etc.")
+            await msg.channel.send("Invalid format. Use `!remindme <time> <message>`")
             return
         time_str = parts[1]
         reminder_message = parts[2]
         delay = parse_time_string(time_str)
         if delay is None:
-            await msg.channel.send("Invalid time format. Use formats like 1m, 1h, 2h2m, 30sec, etc.")
+            await msg.channel.send("Invalid time format. Use formats like '1m', '1h', '2h2m', '30sec', etc.")
             return
         await msg.channel.send(f"Reminder set for {time_str} from now.")
-        asyncio.create_task(schedule_message(msg.channel, delay, reminder_message))
+        asyncio.create_task(schedule_reminder(msg.channel, delay, reminder_message))
     except ValueError:
         await msg.channel.send("Invalid time format. Please provide the time in a valid format.")
+
+# Function to schedule and send a reminder
+async def schedule_reminder(channel: discord.TextChannel, delay: int, reminder_message: str):
+    await asyncio.sleep(delay)
+    prompt = f"<system message>It's time to remind the user about the reminder they set. User Reminder input text: {reminder_message}. The timer has now expired. Remind the user!</system message>\n Reminder Time!"
+    response = await generate_reminder(prompt)
+    await channel.send(response)
+
+# Function to generate reminder message
+async def generate_reminder(prompt: str) -> str:
+    try:
+        response = await llm_client.completions.create(
+            model="MaziyarPanahi/WizardLM-2-7B-GGUF/WizardLM-2-7B.Q4_K_M.gguf",
+            prompt=prompt,
+            temperature=0.8,
+            max_tokens=256,
+            top_p=1.0,
+            frequency_penalty=0.0,
+            presence_penalty=0.0
+        )
+        return response.choices[0].text.strip()
+    except Exception as e:
+        logging.error(f"Failed to generate reminder: {e}")
+        return "Sorry, an error occurred while generating the reminder."
 
 # Discord client event handler for new messages
 @discord_client.event
