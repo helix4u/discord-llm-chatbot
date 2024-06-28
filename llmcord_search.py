@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
 import os
 import json
@@ -11,6 +11,7 @@ import aiohttp
 import re
 import base64
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
+import whisper
 
 # Load environment variables from a .env file
 load_dotenv()
@@ -24,6 +25,9 @@ logging.basicConfig(
 
 # Initialize the OpenAI client with the URL of your local AI server
 llm_client = AsyncOpenAI(base_url=os.getenv("LOCAL_SERVER_URL", "http://localhost:1234/v1"), api_key="lm-studio")
+
+# Initialize Whisper model
+whisper_model = whisper.load_model("base")
 
 # Environment variable validation and fallback
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -285,7 +289,7 @@ async def handle_reminder_command(msg: discord.Message):
 # Function to schedule and send a reminder
 async def schedule_reminder(channel: discord.TextChannel, delay: int, reminder_message: str):
     await asyncio.sleep(delay)
-    prompt = f"<system message>It's time to remind the user about the reminder they set. User Reminder input text: {reminder_message}. The timer has now expired. Remind the user!</system message>\n Reminder Time!"
+    prompt = f"Reminder: {reminder_message}"
     response = await generate_reminder(prompt)
     await channel.send(response)
 
@@ -305,6 +309,20 @@ async def generate_reminder(prompt: str) -> str:
     except Exception as e:
         logging.error(f"Failed to generate reminder: {e}")
         return "Sorry, an error occurred while generating the reminder."
+
+# Function to handle audio attachments and transcribe using Whisper
+async def transcribe_audio(audio_url: str) -> str:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(audio_url) as resp:
+            if resp.status == 200:
+                audio_data = await resp.read()
+                with open("audio_message.mp3", "wb") as audio_file:
+                    audio_file.write(audio_data)
+                result = whisper_model.transcribe("audio_message.mp3")
+                return result["text"]
+            else:
+                logging.error(f"Failed to download audio file. Status code: {resp.status}")
+    return ""
 
 # Discord client event handler for new messages
 @discord_client.event
@@ -413,6 +431,137 @@ async def on_message(msg: discord.Message):
     # Check for YouTube URLs and fetch transcript if found
     youtube_urls = [url for url in urls_detected if "youtube.com/watch" in url or "youtu.be/" in url]
     youtube_transcripts = await asyncio.gather(*(fetch_youtube_transcript(url) for url in youtube_urls))
+
+    # Filter out unwanted messages
+    if (
+        (msg.channel.type != discord.ChannelType.private and discord_client.user not in msg.mentions)
+        or (ALLOWED_CHANNEL_IDS and not any(x in ALLOWED_CHANNEL_IDS for x in (msg.channel.id, getattr(msg.channel, "parent_id", None))))
+        or (ALLOWED_ROLE_IDS and (msg.channel.type == discord.ChannelType.private or not [role for role in msg.author.roles if role.id in ALLOWED_ROLE_IDS]))
+        or msg.author.bot
+        or msg.channel.type == discord.ChannelType.forum
+    ):
+        return
+
+    # Ensure message history is initialized for the channel
+    if msg.channel.id not in message_history:
+        message_history[msg.channel.id] = []
+
+    # Check if the message contains images
+    if msg.attachments:
+        for attachment in msg.attachments:
+            if "image" in attachment.content_type:
+                # Clear history
+                message_history[msg.channel.id].clear()
+                msg_nodes.clear()
+                in_progress_msg_ids.clear()
+
+                image_url = attachment.url
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(image_url) as resp:
+                        if resp.status == 200:
+                            image_data = await resp.read()
+                            base64_image = base64.b64encode(image_data).decode("utf-8")
+                            text_content = msg.content if msg.content else ""
+                            reply_chain = [
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "A chat between a curious user and an artificial intelligence assistant. "
+                                        "The assistant is equipped with a vision model that analyzes the image information that the user provides in the message directly following theirs. It resembles an image description. The description is info from the vision model Use it to describe the image to the user. The assistant gives helpful, detailed, and polite answers to the user's questions. "
+                                        "USER: Hi\n ASSISTANT: Hello.\n</s> "
+                                        "USER: Who are you?\n ASSISTANT: I am Saṃsāra. I am an intelligent assistant.\n "
+                                        "I always provide well-reasoned answers that are both correct and helpful.\n</s> "
+                                        f"Today's date: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}"
+                                        "......"
+                                    ),
+                                },
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "text",
+                                            "text": "Base Instruction: \"Describe the image in a very detailed and intricate way, as if you were describing it to a blind person for reasons of accessibility. Begin your response with: \"'Image Description':, \". "
+                                            "Extended Instruction: \"Below is a user comment or request. Write a response that appropriately completes the request.\". "
+                                            "User's prompt/question regarding the image (Optional input): " + text_content + "\n "
+                                            "......"
+                                        },
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": f"data:image/jpeg;base64,{base64_image}"
+                                            },
+                                        }
+                                    ]
+                                }
+                            ]
+
+                            logging.info(f"Message contains image. Clearing history and preparing to respond to image. Reply chain length: {len(reply_chain)}")
+
+                            response_msgs = []
+                            response_msg_contents = []
+                            prev_content = None
+                            edit_msg_task = None
+                            async for chunk in await llm_client.chat.completions.create(
+                                model=os.getenv("LLM"),
+                                messages=reply_chain,
+                                max_tokens=1024,
+                                stream=True,
+                            ):
+                                curr_content = chunk.choices[0].delta.content or ""
+                                if prev_content:
+                                    if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
+                                        reply_msg = msg if not response_msgs else response_msgs[-1]
+                                        embed = discord.Embed(description="⏳", color=EMBED_COLOR["incomplete"])
+                                        for warning in sorted(user_warnings):
+                                            embed.add_field(name=warning, value="", inline=False)
+                                        response_msgs += [
+                                            await reply_msg.reply(
+                                                embed=embed,
+                                                silent=True,
+                                            )
+                                        ]
+                                        in_progress_msg_ids.append(response_msgs[-1].id)
+                                        last_msg_task_time = datetime.now().timestamp()
+                                        response_msg_contents += [""]
+                                    response_msg_contents[-1] += prev_content
+                                    final_msg_edit = len(response_msg_contents[-1] + curr_content) > EMBED_MAX_LENGTH or curr_content == ""
+                                    if final_msg_edit or (not edit_msg_task or edit_msg_task.done()) and datetime.now().timestamp() - last_msg_task_time >= len(in_progress_msg_ids) / EDITS_PER_SECOND:
+                                        while edit_msg_task and not edit_msg_task.done():
+                                            await asyncio.sleep(0)
+                                        if response_msg_contents[-1].strip():
+                                            embed.description = response_msg_contents[-1]
+                                        embed.color = EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"]
+                                        edit_msg_task = asyncio.create_task(response_msgs[-1].edit(embed=embed))
+                                        last_msg_task_time = datetime.now().timestamp()
+                                prev_content = curr_content
+
+                            # Create MsgNode(s) for bot reply message(s) (can be multiple if bot reply was long)
+                            for response_msg in response_msgs:
+                                msg_nodes[response_msg.id] = MsgNode(
+                                    {
+                                        "role": "assistant",
+                                        "content": "".join(response_msg_contents),
+                                        "name": str(discord_client.user.id),
+                                    },
+                                    replied_to=msg_nodes.get(msg.id, None),
+                                )
+                                in_progress_msg_ids.remove(response_msg.id)
+                return
+
+    # Check for URLs in the message and scrape if found
+    urls_detected = detect_urls(msg.content)
+    webpage_texts = await asyncio.gather(*(scrape_website(url) for url in urls_detected))
+
+    # Check for YouTube URLs and fetch transcript if found
+    youtube_urls = [url for url in urls_detected if "youtube.com/watch" in url or "youtu.be/" in url]
+    youtube_transcripts = await asyncio.gather(*(fetch_youtube_transcript(url) for url in youtube_urls))
+
+    # Handle audio messages
+    for attachment in msg.attachments:
+        if "audio" in attachment.content_type or attachment.content_type == "application/ogg":
+            transcription = await transcribe_audio(attachment.url)
+            if transcription:
+                msg.content = transcription
 
     # Filter out unwanted messages
     if (
