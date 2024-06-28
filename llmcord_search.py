@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import os
 import json
@@ -60,6 +60,9 @@ IGNORE_COMMANDS = [
     "!help", "!info", "!ping", "!status", "!upscale"
 ]
 
+# List of scheduled tasks
+scheduled_tasks = []
+
 # Class to represent a message node
 class MsgNode:
     def __init__(self, msg, too_many_images=False, replied_to=None):
@@ -111,12 +114,13 @@ async def scrape_website(url: str) -> str:
                     text = await response.text()
                     soup = BeautifulSoup(text, 'html.parser')
                     raw_text = soup.get_text(separator='\n')
-                    return clean_text(raw_text)
+                    cleaned_text = clean_text(raw_text)
+                    return cleaned_text if cleaned_text else "Failed to scrape the website."
                 else:
                     logging.error(f"Failed to fetch data from {url}. Status code: {response.status}")
         except Exception as e:
             logging.error(f"An error occurred while fetching data from {url}: {e}")
-    return ""
+    return "Failed to scrape the website."
 
 # Function to detect URLs in a message using regex
 def detect_urls(message_text: str) -> list:
@@ -213,12 +217,14 @@ async def search_and_summarize(query: str, channel: discord.TextChannel):
     if search_results:
         for result in search_results:
             url = result.get('url', 'No URL')
-            if url != 'No URL':
-                webpage_text = await scrape_website(url)
-                if webpage_text:
+            webpage_text = await scrape_website(url)
+            if webpage_text:
+                if webpage_text == "Failed to scrape the website.":
+                    await channel.send(f"Unfortunately, scraping the website at {url} has failed. Please try another source.")
+                else:
                     cleaned_content = clean_text(webpage_text)
-                    summary_prompt = f"\n[<system message>Webpage scrape to be used for summarization: {cleaned_content} Use this as search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)</system message>]\n "
-                    summary = await generate_completion(summary_prompt)
+                    prompt = f"\n[<system message>Webpage scrape to be used for summarization: {cleaned_content} Use this as search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)</system message>]\n "
+                    summary = await generate_completion(prompt)
                     chunks = chunk_text(summary)
                     for chunk in chunks:
                         embed = discord.Embed(
@@ -230,6 +236,51 @@ async def search_and_summarize(query: str, channel: discord.TextChannel):
                         await channel.send(embed=embed)
     else:
         await channel.send("No search results found.")
+
+# Function to schedule a message
+async def schedule_message(channel: discord.TextChannel, delay: int, message: str):
+    await asyncio.sleep(delay)
+    await channel.send(message)
+
+# Function to parse time strings like '1m', '1h', '2h2m', '30sec', etc.
+def parse_time_string(time_str: str) -> int:
+    time_units = {
+        'h': 3600,
+        'm': 60,
+        's': 1,
+        'sec': 1,
+        'min': 60,
+        'hour': 3600
+    }
+    pattern = re.compile(r'(\d+)([hms]+|sec|min|hour)')
+    matches = pattern.findall(time_str)
+    
+    if not matches:
+        return None
+    
+    total_seconds = 0
+    for value, unit in matches:
+        total_seconds += int(value) * time_units[unit]
+    
+    return total_seconds
+
+# Function to parse and schedule reminders
+async def handle_reminder_command(msg: discord.Message):
+    try:
+        parts = msg.content.split(maxsplit=2)
+        if len(parts) < 3:
+            await msg.channel.send("Invalid format. Use `!remindme <time> <message>` Use formats like 1m, 1h, 2h2m, 30sec, etc.")
+            return
+        time_str = parts[1]
+        reminder_message = parts[2]
+        delay = parse_time_string(time_str)
+        if delay is None:
+            await msg.channel.send("Invalid time format. Use formats like 1m, 1h, 2h2m, 30sec, etc.")
+            return
+        await msg.channel.send(f"Reminder set for {time_str} from now.")
+        asyncio.create_task(schedule_message(msg.channel, delay, reminder_message))
+    except ValueError:
+        await msg.channel.send("Invalid time format. Please provide the time in a valid format.")
 
 # Discord client event handler for new messages
 @discord_client.event
@@ -482,6 +533,11 @@ async def on_message(msg: discord.Message):
         await search_and_summarize(query, msg.channel)
         return
 
+    # Check for new command: !remindme
+    if msg.content.startswith("!remindme "):
+        await handle_reminder_command(msg)
+        return
+
     # Update message history
     message_history[msg.channel.id].append(msg)
     message_history[msg.channel.id] = message_history[msg.channel.id][-MAX_MESSAGES:]
@@ -553,12 +609,15 @@ async def on_message(msg: discord.Message):
 
         # Inject cleaned webpage summaries into the history
         for webpage_text in webpage_texts:
-            reply_chain[0]["content"][0]["text"] += f"\n[<system message>Webpage Scrape for Summarization: {webpage_text} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)</system message>]\n "
+            if webpage_text == "Failed to scrape the website.":
+                reply_chain[0]["content"][0]["text"] += f"\n[<system message>Unfortunately, scraping the website has failed. Please try another source.</system message>]\n "
+            else:
+                reply_chain[0]["content"][0]["text"] += f"\n[<system message>Webpage Scrape for Summarization: {webpage_text} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)</system message>]\n "
 
         # Inject YouTube transcripts into the history
         for youtube_transcript in youtube_transcripts:
             if youtube_transcript:
-                reply_chain[0]["content"][0]["text"] += f"\n[<system message>YouTube Transcript: {youtube_transcript} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)</system message>]\n "
+                reply_chain[0]["content"][0]["text"] += f"\n[<system message>Default task: The user has provided a youtube URL that was scraped for the following content to summarize: </system message>\nYouTube Transcript: {youtube_transcript} Use this for summarization and link citation (provide full links formatted for discord when citing)]\n "
 
         # Handle images sent by the user
         for attachment in msg.attachments:
