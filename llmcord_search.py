@@ -282,16 +282,21 @@ async def handle_reminder_command(msg: discord.Message):
             await msg.channel.send("Invalid time format. Use formats like '1m', '1h', '2h2m', '30sec', etc.")
             return
         await msg.channel.send(f"Reminder set for {time_str} from now.")
-        asyncio.create_task(schedule_reminder(msg.channel, delay, reminder_message))
+        asyncio.create_task(schedule_reminder(msg.channel, delay, time_str, reminder_message))
     except ValueError:
         await msg.channel.send("Invalid time format. Please provide the time in a valid format.")
 
 # Function to schedule and send a reminder
-async def schedule_reminder(channel: discord.TextChannel, delay: int, reminder_message: str):
+async def schedule_reminder(channel: discord.TextChannel, delay: int, time_str: str, reminder_message: str):
     await asyncio.sleep(delay)
-    prompt = f"Reminder: {reminder_message}"
+    prompt = f"<system message>It's time to remind the user about the reminder they set. User Reminder input text: {reminder_message}. The timer has now expired. Remind the user!</system message>\n Reminder Time!"
     response = await generate_reminder(prompt)
-    await channel.send(response)
+    embed = discord.Embed(
+        title=f"Reminder for {time_str}: {reminder_message}",
+        description=response,
+        color=discord.Color.green()
+    )
+    await channel.send(embed=embed)
 
 # Function to generate reminder message
 async def generate_reminder(prompt: str) -> str:
@@ -431,6 +436,13 @@ async def on_message(msg: discord.Message):
     # Check for YouTube URLs and fetch transcript if found
     youtube_urls = [url for url in urls_detected if "youtube.com/watch" in url or "youtu.be/" in url]
     youtube_transcripts = await asyncio.gather(*(fetch_youtube_transcript(url) for url in youtube_urls))
+
+    # Handle audio messages
+    for attachment in msg.attachments:
+        if "audio" in attachment.content_type or attachment.content_type == "application/ogg":
+            transcription = await transcribe_audio(attachment.url)
+            if transcription:
+                msg.content = transcription
 
     # Filter out unwanted messages
     if (
