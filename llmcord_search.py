@@ -339,7 +339,8 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
         if search_results:
             # Prepare a summary of search results for the LLM
             search_summary = "\n".join([f"Title: {result.get('title', 'No title')}\nURL: {result.get('url', 'No URL')}\nSnippet: {result.get('content', 'No snippet available')}" for result in search_results])
-            prompt = f"System provided search and retrieval augmentation data for use in crafting summarization of and link citation: {search_summary}. Use this search and augmentation data for summarization and link citation. Provide full links, formatted for discord, when citing."
+            prompt = f"<system message>System provided search and retrieval augmentation data. Use this in crafting summarization for the user and link citation: {search_summary}. Provide full links when citing.</system message> Summarize and provide links please!"
+            qeury_title = f"Search summary/links for: \"{query}\" "
 
             # Initialize tracking variables
             response_msgs = []
@@ -359,7 +360,7 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
                 curr_content = chunk.choices[0].delta.content or ""
                 if prev_content:
                     if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
-                        reply_msg = await channel.send(embed=discord.Embed(title=query, description="⏳", color=EMBED_COLOR["incomplete"]))
+                        reply_msg = await channel.send(embed=discord.Embed(title=qeury_title, description="⏳", color=EMBED_COLOR["incomplete"]))
                         response_msgs.append(reply_msg)
                         response_msg_contents.append("")
                     response_msg_contents[-1] += prev_content
@@ -368,7 +369,7 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
                         while edit_msg_task and not edit_msg_task.done():
                             await asyncio.sleep(0)
                         if response_msg_contents[-1].strip():
-                            embed = discord.Embed(title=query, description=response_msg_contents[-1], color=EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"])
+                            embed = discord.Embed(title=qeury_title, description=response_msg_contents[-1], color=EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"])
                             edit_msg_task = asyncio.create_task(response_msgs[-1].edit(embed=embed))
                             last_msg_task_time = datetime.now().timestamp()
                 prev_content = curr_content
@@ -376,7 +377,7 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
             # Final edit after the stream is complete
             if prev_content:
                 if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
-                    reply_msg = await channel.send(embed=discord.Embed(title=query, description="⏳", color=EMBED_COLOR["incomplete"]))
+                    reply_msg = await channel.send(embed=discord.Embed(title=qeury_title, description="⏳", color=EMBED_COLOR["incomplete"]))
                     response_msgs.append(reply_msg)
                     response_msg_contents.append("")
                 response_msg_contents[-1] += prev_content
