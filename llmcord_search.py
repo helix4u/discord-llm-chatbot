@@ -330,9 +330,9 @@ async def transcribe_audio(audio_url: str) -> str:
     return ""
 
 # Function to handle voice commands
-async def handle_voice_command(transcription: str, channel: discord.TextChannel):
+async def handle_voice_command(transcription: str, channel: discord.TextChannel) -> bool:
     logging.info(f"Transcription: {transcription}")
-    match = re.search(r'please search for (.+)', transcription, re.IGNORECASE)
+    match = re.search(r'search for (.+)', transcription, re.IGNORECASE)
     if match:
         query = match.group(1)
         search_results = await query_searx(query)
@@ -359,7 +359,7 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
                 curr_content = chunk.choices[0].delta.content or ""
                 if prev_content:
                     if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
-                        reply_msg = await channel.send(embed=discord.Embed(description="⏳", color=EMBED_COLOR["incomplete"]))
+                        reply_msg = await channel.send(embed=discord.Embed(title=query, description="⏳", color=EMBED_COLOR["incomplete"]))
                         response_msgs.append(reply_msg)
                         response_msg_contents.append("")
                     response_msg_contents[-1] += prev_content
@@ -368,7 +368,7 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
                         while edit_msg_task and not edit_msg_task.done():
                             await asyncio.sleep(0)
                         if response_msg_contents[-1].strip():
-                            embed = discord.Embed(description=response_msg_contents[-1], color=EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"])
+                            embed = discord.Embed(title=query, description=response_msg_contents[-1], color=EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"])
                             edit_msg_task = asyncio.create_task(response_msgs[-1].edit(embed=embed))
                             last_msg_task_time = datetime.now().timestamp()
                 prev_content = curr_content
@@ -376,20 +376,17 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
             # Final edit after the stream is complete
             if prev_content:
                 if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
-                    reply_msg = await channel.send(embed=discord.Embed(description="⏳", color=EMBED_COLOR["incomplete"]))
+                    reply_msg = await channel.send(embed=discord.Embed(title=query, description="⏳", color=EMBED_COLOR["incomplete"]))
                     response_msgs.append(reply_msg)
                     response_msg_contents.append("")
                 response_msg_contents[-1] += prev_content
-                embed = discord.Embed(description=response_msg_contents[-1], color=EMBED_COLOR["complete"])
+                embed = discord.Embed(title=query, description=response_msg_contents[-1], color=EMBED_COLOR["complete"])
                 await response_msgs[-1].edit(embed=embed)
 
-            return True  # Indicate that a voice command was handled
-
         else:
-            await channel.send("No search results found.")
-            return True  # Indicate that a voice command was handled
-
-    return False  # Indicate that no voice command was handled
+            await channel.send(f"No search results found for: {query}")
+        return True
+    return False
 
 # Discord client event handler for new messages
 @discord_client.event
@@ -504,10 +501,9 @@ async def on_message(msg: discord.Message):
         if "audio" in attachment.content_type or attachment.content_type == "application/ogg":
             transcription = await transcribe_audio(attachment.url)
             if transcription:
+                if await handle_voice_command(transcription, msg.channel):
+                    return  # Stop further processing if a voice command was handled
                 msg.content = transcription
-                voice_handled = await handle_voice_command(transcription, msg.channel)
-                if voice_handled:
-                    return  # Exit early if a voice command was handled
 
     # Filter out unwanted messages
     if (
