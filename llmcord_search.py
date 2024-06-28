@@ -289,7 +289,7 @@ async def handle_reminder_command(msg: discord.Message):
 # Function to schedule and send a reminder
 async def schedule_reminder(channel: discord.TextChannel, delay: int, time_str: str, reminder_message: str):
     await asyncio.sleep(delay)
-    prompt = f"<system message>It's time to remind the user about the reminder they set. User Reminder input text: {reminder_message}. The timer has now expired. Remind the user!</system message>\n Reminder Time!"
+    prompt = f"<system message>It's time to remind the user about the reminder they set. User Reminder input text: {reminder_message}. The timer has now expired. Remind the user!</system message>\n Reminder Time! "
     response = await generate_reminder(prompt)
     embed = discord.Embed(
         title=f"Reminder for {time_str}: {reminder_message}",
@@ -328,6 +328,68 @@ async def transcribe_audio(audio_url: str) -> str:
             else:
                 logging.error(f"Failed to download audio file. Status code: {resp.status}")
     return ""
+
+# Function to handle voice commands
+async def handle_voice_command(transcription: str, channel: discord.TextChannel):
+    logging.info(f"Transcription: {transcription}")
+    match = re.search(r'please search for (.+)', transcription, re.IGNORECASE)
+    if match:
+        query = match.group(1)
+        search_results = await query_searx(query)
+        if search_results:
+            # Prepare a summary of search results for the LLM
+            search_summary = "\n".join([f"Title: {result.get('title', 'No title')}\nURL: {result.get('url', 'No URL')}\nSnippet: {result.get('content', 'No snippet available')}" for result in search_results])
+            prompt = f"System provided search and retrieval augmentation data for use in crafting summarization of and link citation: {search_summary}. Use this search and augmentation data for summarization and link citation. Provide full links, formatted for discord, when citing."
+
+            # Initialize tracking variables
+            response_msgs = []
+            response_msg_contents = []
+            prev_content = None
+            edit_msg_task = None
+            last_msg_task_time = datetime.now().timestamp()
+            in_progress_msg_ids = []
+
+            # Stream LLM completion
+            async for chunk in await llm_client.chat.completions.create(
+                model=os.getenv("LLM"),
+                messages=[{"role": "system", "content": prompt}],
+                max_tokens=1024,
+                stream=True,
+            ):
+                curr_content = chunk.choices[0].delta.content or ""
+                if prev_content:
+                    if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
+                        reply_msg = await channel.send(embed=discord.Embed(description="⏳", color=EMBED_COLOR["incomplete"]))
+                        response_msgs.append(reply_msg)
+                        response_msg_contents.append("")
+                    response_msg_contents[-1] += prev_content
+                    final_msg_edit = len(response_msg_contents[-1] + curr_content) > EMBED_MAX_LENGTH or curr_content == ""
+                    if final_msg_edit or (not edit_msg_task or edit_msg_task.done()) and datetime.now().timestamp() - last_msg_task_time >= len(in_progress_msg_ids) / EDITS_PER_SECOND:
+                        while edit_msg_task and not edit_msg_task.done():
+                            await asyncio.sleep(0)
+                        if response_msg_contents[-1].strip():
+                            embed = discord.Embed(description=response_msg_contents[-1], color=EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"])
+                            edit_msg_task = asyncio.create_task(response_msgs[-1].edit(embed=embed))
+                            last_msg_task_time = datetime.now().timestamp()
+                prev_content = curr_content
+
+            # Final edit after the stream is complete
+            if prev_content:
+                if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
+                    reply_msg = await channel.send(embed=discord.Embed(description="⏳", color=EMBED_COLOR["incomplete"]))
+                    response_msgs.append(reply_msg)
+                    response_msg_contents.append("")
+                response_msg_contents[-1] += prev_content
+                embed = discord.Embed(description=response_msg_contents[-1], color=EMBED_COLOR["complete"])
+                await response_msgs[-1].edit(embed=embed)
+
+            return True  # Indicate that a voice command was handled
+
+        else:
+            await channel.send("No search results found.")
+            return True  # Indicate that a voice command was handled
+
+    return False  # Indicate that no voice command was handled
 
 # Discord client event handler for new messages
 @discord_client.event
@@ -443,137 +505,9 @@ async def on_message(msg: discord.Message):
             transcription = await transcribe_audio(attachment.url)
             if transcription:
                 msg.content = transcription
-
-    # Filter out unwanted messages
-    if (
-        (msg.channel.type != discord.ChannelType.private and discord_client.user not in msg.mentions)
-        or (ALLOWED_CHANNEL_IDS and not any(x in ALLOWED_CHANNEL_IDS for x in (msg.channel.id, getattr(msg.channel, "parent_id", None))))
-        or (ALLOWED_ROLE_IDS and (msg.channel.type == discord.ChannelType.private or not [role for role in msg.author.roles if role.id in ALLOWED_ROLE_IDS]))
-        or msg.author.bot
-        or msg.channel.type == discord.ChannelType.forum
-    ):
-        return
-
-    # Ensure message history is initialized for the channel
-    if msg.channel.id not in message_history:
-        message_history[msg.channel.id] = []
-
-    # Check if the message contains images
-    if msg.attachments:
-        for attachment in msg.attachments:
-            if "image" in attachment.content_type:
-                # Clear history
-                message_history[msg.channel.id].clear()
-                msg_nodes.clear()
-                in_progress_msg_ids.clear()
-
-                image_url = attachment.url
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(image_url) as resp:
-                        if resp.status == 200:
-                            image_data = await resp.read()
-                            base64_image = base64.b64encode(image_data).decode("utf-8")
-                            text_content = msg.content if msg.content else ""
-                            reply_chain = [
-                                {
-                                    "role": "system",
-                                    "content": (
-                                        "A chat between a curious user and an artificial intelligence assistant. "
-                                        "The assistant is equipped with a vision model that analyzes the image information that the user provides in the message directly following theirs. It resembles an image description. The description is info from the vision model Use it to describe the image to the user. The assistant gives helpful, detailed, and polite answers to the user's questions. "
-                                        "USER: Hi\n ASSISTANT: Hello.\n</s> "
-                                        "USER: Who are you?\n ASSISTANT: I am Saṃsāra. I am an intelligent assistant.\n "
-                                        "I always provide well-reasoned answers that are both correct and helpful.\n</s> "
-                                        f"Today's date: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}"
-                                        "......"
-                                    ),
-                                },
-                                {
-                                    "role": "user",
-                                    "content": [
-                                        {
-                                            "type": "text",
-                                            "text": "Base Instruction: \"Describe the image in a very detailed and intricate way, as if you were describing it to a blind person for reasons of accessibility. Begin your response with: \"'Image Description':, \". "
-                                            "Extended Instruction: \"Below is a user comment or request. Write a response that appropriately completes the request.\". "
-                                            "User's prompt/question regarding the image (Optional input): " + text_content + "\n "
-                                            "......"
-                                        },
-                                        {
-                                            "type": "image_url",
-                                            "image_url": {
-                                                "url": f"data:image/jpeg;base64,{base64_image}"
-                                            },
-                                        }
-                                    ]
-                                }
-                            ]
-
-                            logging.info(f"Message contains image. Clearing history and preparing to respond to image. Reply chain length: {len(reply_chain)}")
-
-                            response_msgs = []
-                            response_msg_contents = []
-                            prev_content = None
-                            edit_msg_task = None
-                            async for chunk in await llm_client.chat.completions.create(
-                                model=os.getenv("LLM"),
-                                messages=reply_chain,
-                                max_tokens=1024,
-                                stream=True,
-                            ):
-                                curr_content = chunk.choices[0].delta.content or ""
-                                if prev_content:
-                                    if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
-                                        reply_msg = msg if not response_msgs else response_msgs[-1]
-                                        embed = discord.Embed(description="⏳", color=EMBED_COLOR["incomplete"])
-                                        for warning in sorted(user_warnings):
-                                            embed.add_field(name=warning, value="", inline=False)
-                                        response_msgs += [
-                                            await reply_msg.reply(
-                                                embed=embed,
-                                                silent=True,
-                                            )
-                                        ]
-                                        in_progress_msg_ids.append(response_msgs[-1].id)
-                                        last_msg_task_time = datetime.now().timestamp()
-                                        response_msg_contents += [""]
-                                    response_msg_contents[-1] += prev_content
-                                    final_msg_edit = len(response_msg_contents[-1] + curr_content) > EMBED_MAX_LENGTH or curr_content == ""
-                                    if final_msg_edit or (not edit_msg_task or edit_msg_task.done()) and datetime.now().timestamp() - last_msg_task_time >= len(in_progress_msg_ids) / EDITS_PER_SECOND:
-                                        while edit_msg_task and not edit_msg_task.done():
-                                            await asyncio.sleep(0)
-                                        if response_msg_contents[-1].strip():
-                                            embed.description = response_msg_contents[-1]
-                                        embed.color = EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"]
-                                        edit_msg_task = asyncio.create_task(response_msgs[-1].edit(embed=embed))
-                                        last_msg_task_time = datetime.now().timestamp()
-                                prev_content = curr_content
-
-                            # Create MsgNode(s) for bot reply message(s) (can be multiple if bot reply was long)
-                            for response_msg in response_msgs:
-                                msg_nodes[response_msg.id] = MsgNode(
-                                    {
-                                        "role": "assistant",
-                                        "content": "".join(response_msg_contents),
-                                        "name": str(discord_client.user.id),
-                                    },
-                                    replied_to=msg_nodes.get(msg.id, None),
-                                )
-                                in_progress_msg_ids.remove(response_msg.id)
-                return
-
-    # Check for URLs in the message and scrape if found
-    urls_detected = detect_urls(msg.content)
-    webpage_texts = await asyncio.gather(*(scrape_website(url) for url in urls_detected))
-
-    # Check for YouTube URLs and fetch transcript if found
-    youtube_urls = [url for url in urls_detected if "youtube.com/watch" in url or "youtu.be/" in url]
-    youtube_transcripts = await asyncio.gather(*(fetch_youtube_transcript(url) for url in youtube_urls))
-
-    # Handle audio messages
-    for attachment in msg.attachments:
-        if "audio" in attachment.content_type or attachment.content_type == "application/ogg":
-            transcription = await transcribe_audio(attachment.url)
-            if transcription:
-                msg.content = transcription
+                voice_handled = await handle_voice_command(transcription, msg.channel)
+                if voice_handled:
+                    return  # Exit early if a voice command was handled
 
     # Filter out unwanted messages
     if (
