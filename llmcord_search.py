@@ -87,7 +87,7 @@ def get_system_prompt() -> list:
                     "USER: Hi\n ASSISTANT: Hello.\n</s> "
                     "USER: Who are you?\n ASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra, or Sam.\n "
                     "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n</s> "
-                    "......"
+                    "</s>......"
                 ),
             }
         ]
@@ -101,7 +101,7 @@ def get_system_prompt() -> list:
                 "USER: Who are you?\n ASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra, or Sam.\n "
                 "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n</s> "
                 f"Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}\n "
-                "......"
+                "</s>......"
             ),
         }
     ]
@@ -432,7 +432,7 @@ async def on_message(msg: discord.Message):
                                 {
                                     "role": "system",
                                     "content": (
-                                        "......"
+                                        "</s></s>......"
                                     )
                                 },
                                 {
@@ -562,7 +562,7 @@ async def on_message(msg: discord.Message):
                                         "USER: Who are you?\n ASSISTANT: I am Saṃsāra. I am an intelligent assistant.\n "
                                         "I always provide well-reasoned answers that are both correct and helpful.\n</s> "
                                         f"Today's date: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}"
-                                        "......"
+                                        "</s>......"
                                     ),
                                 },
                                 {
@@ -573,7 +573,7 @@ async def on_message(msg: discord.Message):
                                             "text": "Base Instruction: \"Describe the image in a very detailed and intricate way, as if you were describing it to a blind person for reasons of accessibility. Begin your response with: \"'Image Description':, \". "
                                             "Extended Instruction: \"Below is a user comment or request. Write a response that appropriately completes the request.\". "
                                             "User's prompt/question regarding the image (Optional input): " + text_content + "\n "
-                                            "......"
+                                            "</s>......"
                                         },
                                         {
                                             "type": "image_url",
