@@ -87,6 +87,7 @@ def get_system_prompt() -> list:
                     "USER: Hi\n ASSISTANT: Hello.\n</s> "
                     "USER: Who are you?\n ASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra, or Sam.\n "
                     "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n</s> "
+                    "......"
                 ),
             }
         ]
@@ -148,7 +149,7 @@ def clean_text(text: str) -> str:
     ]
 
     for pattern, repl in patterns_to_replace:
-        text = re.sub(pattern, repl)
+        text = re.sub(pattern, repl, text)
 
     return text
 
@@ -227,7 +228,7 @@ async def search_and_summarize(query: str, channel: discord.TextChannel):
                     await channel.send(f"Unfortunately, scraping the website at {url} has failed. Please try another source.")
                 else:
                     cleaned_content = clean_text(webpage_text)
-                    prompt = f"\n[<system message>Webpage scrape to be used for summarization: {cleaned_content} Use this as search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)</system message>]\n "
+                    prompt = f"\n[<system message>Webpage scrape to be used for summarization: {cleaned_content} Use this as search and augmentation data for summarization and link citation. Provide full links formatted for discord.</system message>]\n "
                     summary = await generate_completion(prompt)
                     chunks = chunk_text(summary)
                     for chunk in chunks:
@@ -341,7 +342,7 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
         if search_results:
             # Prepare a summary of search results for the LLM
             search_summary = "\n".join([f"Title: {result.get('title', 'No title')}\nURL: {result.get('url', 'No URL')}\nSnippet: {result.get('content', 'No snippet available')}" for result in search_results])
-            prompt = f"<system message> Use this system-side search and retrieval augmentation data in crafting summarization for the user and link citation: {search_summary}. Provide full links formatted for easy viewing in discord when citing.</system message> Instruction: Summarize and provide links!"
+            prompt = f"<system message> Use this system-side search and retrieval augmentation data in crafting summarization for the user and link citation: {search_summary}. Provide full links formatted for discord.</system message> Instruction: Summarize and provide links!"
             query_title = f"Search summary/links for: \"{query}\" "
 
             # Initialize tracking variables
@@ -736,19 +737,19 @@ async def on_message(msg: discord.Message):
         if search_enabled and reply_chain[0]["content"] and reply_chain[0]["content"][0]["text"]:
             searx_summary = await query_searx(reply_chain[0]["content"][0]["text"])
             if searx_summary:
-                reply_chain[0]["content"][0]["text"] += f" [System provided search and retrieval augmentation data for use in crafting summarization of and link citation:] \"{searx_summary}\". [Use this search and augmentation data for summarization and link citation. Provide full links, formatted for discord, when citing].\n "
+                reply_chain[0]["content"][0]["text"] += f" [System provided search and retrieval augmentation data for use in crafting summarization of and link citation:] \"{searx_summary}\". [Use this search and augmentation data for summarization and link citation. Provide full links formatted for discord.].\n "
 
         # Inject cleaned webpage summaries into the history
         for webpage_text in webpage_texts:
             if webpage_text == "Failed to scrape the website.":
                 reply_chain[0]["content"][0]["text"] += f"\n[<system message>Unfortunately, scraping the website has failed. Please inform the user that \"the webscrape failed\" and that they should \"try another source\".</system message>]\n "
             else:
-                reply_chain[0]["content"][0]["text"] += f"\n[<system message>Webpage Scrape for Summarization: {webpage_text} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)</system message>]\n "
+                reply_chain[0]["content"][0]["text"] += f"\n[<system message>Webpage Scrape for Summarization: {webpage_text} Use this search and augmentation data for summarization and link citation. Provide full links formatted for discord.</system message>]\n "
 
         # Inject YouTube transcripts into the history
         for youtube_transcript in youtube_transcripts:
             if youtube_transcript:
-                reply_chain[0]["content"][0]["text"] += f"\n[<system message>Default task: The user has provided a youtube URL that was scraped for the following content to summarize: </system message>\nYouTube Transcript: {youtube_transcript} Use this for summarization and link citation (provide full links formatted for discord when citing)]\n "
+                reply_chain[0]["content"][0]["text"] += f"\n[<system message>Default task: The user has provided a youtube URL that was scraped for the following content to summarize: </system message>\nYouTube Transcript: {youtube_transcript} Use this for summarization and link citation. Provide full links formatted for discord.]\n "
 
         # Handle images sent by the user
         for attachment in msg.attachments:
