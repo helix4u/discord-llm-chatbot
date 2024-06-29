@@ -339,7 +339,7 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
         if search_results:
             # Prepare a summary of search results for the LLM
             search_summary = "\n".join([f"Title: {result.get('title', 'No title')}\nURL: {result.get('url', 'No URL')}\nSnippet: {result.get('content', 'No snippet available')}" for result in search_results])
-            prompt = f"<system message>System provided search and retrieval augmentation data. Use this in crafting summarization for the user and link citation: {search_summary}. Provide full links when citing.</system message> Summarize and provide links please!"
+            prompt = f"<system message> Use this system-side search and retrieval augmentation data in crafting summarization for the user and link citation: {search_summary}. Provide full links formatted for easy viewing in discord when citing.</system message> Instruction: Summarize and provide links!"
             qeury_title = f"Search summary/links for: \"{query}\" "
 
             # Initialize tracking variables
@@ -726,7 +726,7 @@ async def on_message(msg: discord.Message):
         # Inject cleaned webpage summaries into the history
         for webpage_text in webpage_texts:
             if webpage_text == "Failed to scrape the website.":
-                reply_chain[0]["content"][0]["text"] += f"\n[<system message>Unfortunately, scraping the website has failed. Please try another source.</system message>]\n "
+                reply_chain[0]["content"][0]["text"] += f"\n[<system message>Unfortunately, scraping the website has failed. Please inform the user that \"the webscrape failed\" and that they should \"try another source\".</system message>]\n "
             else:
                 reply_chain[0]["content"][0]["text"] += f"\n[<system message>Webpage Scrape for Summarization: {webpage_text} Use this search and augmentation data for summarization and link citation (provide full links formatted for discord when citing)</system message>]\n "
 
