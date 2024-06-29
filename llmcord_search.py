@@ -81,11 +81,11 @@ def get_system_prompt() -> list:
             {
                 "role": "system",
                 "content": (
-                    "A chat between a curious user and an artificial intelligence assistant. "
+                    "A chat between a curious user and a hyper-intelligent assistant. "
                     "The assistant gives helpful, detailed, and polite answers to the user's questions. "
                     f"Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}\n "
                     "USER: Hi\n ASSISTANT: Hello.\n</s> "
-                    "USER: Who are you?\n ASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra.\n "
+                    "USER: Who are you?\n ASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra, or Sam.\n "
                     "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n</s> "
                 ),
             }
@@ -94,10 +94,10 @@ def get_system_prompt() -> list:
         {
             "role": "system",
             "content": (
-                "A chat between a curious user and an artificial intelligence assistant. "
+                "A chat between a curious user and a hyper-intelligent assistant. "
                 "The assistant gives helpful, detailed, and polite answers to the user's questions. "
                 "USER: Hi\n ASSISTANT: Hello.\n</s> "
-                "USER: Who are you?\n ASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra.\n "
+                "USER: Who are you?\n ASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra, or Sam.\n "
                 "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n</s> "
                 f"Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}\n "
                 "......"
@@ -148,7 +148,7 @@ def clean_text(text: str) -> str:
     ]
 
     for pattern, repl in patterns_to_replace:
-        text = re.sub(pattern, repl, text)
+        text = re.sub(pattern, repl)
 
     return text
 
@@ -332,6 +332,8 @@ async def transcribe_audio(audio_url: str) -> str:
 # Function to handle voice commands
 async def handle_voice_command(transcription: str, channel: discord.TextChannel) -> bool:
     logging.info(f"Transcription: {transcription}")
+    await channel.send(embed=discord.Embed(title="User Transcription", description=transcription, color=discord.Color.blue()))
+    
     match = re.search(r'search for (.+)', transcription, re.IGNORECASE)
     if match:
         query = match.group(1)
@@ -340,7 +342,7 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
             # Prepare a summary of search results for the LLM
             search_summary = "\n".join([f"Title: {result.get('title', 'No title')}\nURL: {result.get('url', 'No URL')}\nSnippet: {result.get('content', 'No snippet available')}" for result in search_results])
             prompt = f"<system message> Use this system-side search and retrieval augmentation data in crafting summarization for the user and link citation: {search_summary}. Provide full links formatted for easy viewing in discord when citing.</system message> Instruction: Summarize and provide links!"
-            qeury_title = f"Search summary/links for: \"{query}\" "
+            query_title = f"Search summary/links for: \"{query}\" "
 
             # Initialize tracking variables
             response_msgs = []
@@ -360,7 +362,7 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
                 curr_content = chunk.choices[0].delta.content or ""
                 if prev_content:
                     if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
-                        reply_msg = await channel.send(embed=discord.Embed(title=qeury_title, description="⏳", color=EMBED_COLOR["incomplete"]))
+                        reply_msg = await channel.send(embed=discord.Embed(title=query_title, description="⏳", color=EMBED_COLOR["incomplete"]))
                         response_msgs.append(reply_msg)
                         response_msg_contents.append("")
                     response_msg_contents[-1] += prev_content
@@ -369,7 +371,7 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
                         while edit_msg_task and not edit_msg_task.done():
                             await asyncio.sleep(0)
                         if response_msg_contents[-1].strip():
-                            embed = discord.Embed(title=qeury_title, description=response_msg_contents[-1], color=EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"])
+                            embed = discord.Embed(title=query_title, description=response_msg_contents[-1], color=EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"])
                             edit_msg_task = asyncio.create_task(response_msgs[-1].edit(embed=embed))
                             last_msg_task_time = datetime.now().timestamp()
                 prev_content = curr_content
@@ -377,12 +379,25 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
             # Final edit after the stream is complete
             if prev_content:
                 if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
-                    reply_msg = await channel.send(embed=discord.Embed(title=qeury_title, description="⏳", color=EMBED_COLOR["incomplete"]))
+                    reply_msg = await channel.send(embed=discord.Embed(title=query_title, description="⏳", color=EMBED_COLOR["incomplete"]))
                     response_msgs.append(reply_msg)
                     response_msg_contents.append("")
                 response_msg_contents[-1] += prev_content
-                embed = discord.Embed(title=query, description=response_msg_contents[-1], color=EMBED_COLOR["complete"])
+                embed = discord.Embed(title=query_title, description=response_msg_contents[-1], color=EMBED_COLOR["complete"])
                 await response_msgs[-1].edit(embed=embed)
+
+            # Add the command result to message history and update reply chain
+            for response_msg in response_msgs:
+                message_history[channel.id].append(response_msg)
+                message_history[channel.id] = message_history[channel.id][-MAX_MESSAGES:]
+                msg_nodes[response_msg.id] = MsgNode(
+                    {
+                        "role": "assistant",
+                        "content": "".join(response_msg_contents),
+                        "name": str(discord_client.user.id),
+                    },
+                    replied_to=None,
+                )
 
         else:
             await channel.send(f"No search results found for: {query}")
@@ -399,7 +414,7 @@ async def on_message(msg: discord.Message):
     if any(msg.content.lower().startswith(command) for command in IGNORE_COMMANDS):
         logging.info(f"Ignored message: {msg.content}")
         return
-    
+
     # Check if the message contains the !AP command
     if msg.content.startswith("!ap") and msg.attachments:
         for attachment in msg.attachments:
