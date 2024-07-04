@@ -27,7 +27,7 @@ logging.basicConfig(
 llm_client = AsyncOpenAI(base_url=os.getenv("LOCAL_SERVER_URL", "http://localhost:1234/v1"), api_key="lm-studio")
 
 # Initialize Whisper model
-whisper_model = whisper.load_model("base")
+whisper_model = whisper.load_model("small")
 
 # Environment variable validation and fallback
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -145,13 +145,19 @@ def clean_text(text: str) -> str:
     patterns_to_replace = [
         (r'\s+', ' '),   # replace multiple whitespace with single space
         (r'\[.*?\]', ''),  # remove anything inside square brackets
-        (r'\s*Share\s*', ''),  # remove occurrences of "Share"
+        (r'\[\s*__\s*\]', ''),  # remove occurrences of "[ __ ]"        
+        (r'NFL Sunday Ticket', ''),  # remove occurrences of "NFL Sunday Ticket"
+        (r'© \d{4} Google LLC', '')  # remove occurrences of "© [year] Google LLC"
     ]
 
     for pattern, repl in patterns_to_replace:
         text = re.sub(pattern, repl, text)
 
     return text
+
+# Function to clean YouTube transcript text
+def clean_youtube_transcript(transcript: str) -> str:
+    return clean_text(transcript)
 
 # Function to chunk text into smaller parts
 def chunk_text(text: str, max_length: int = 4000) -> list:
@@ -209,7 +215,8 @@ async def fetch_youtube_transcript(url: str) -> str:
         video_id = re.search(r'v=([^&]+)', url).group(1)
         transcript = YouTubeTranscriptApi.get_transcript(video_id)
         transcript_text = " ".join([entry['text'] for entry in transcript])
-        return transcript_text
+        cleaned_transcript = clean_youtube_transcript(transcript_text)
+        return cleaned_transcript
     except NoTranscriptFound:
         logging.error("No transcript found for this video.")
     except Exception as e:
@@ -403,6 +410,21 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
         else:
             await channel.send(f"No search results found for: {query}")
         return True
+
+    # Check for remind me command in voice transcription
+    match = re.search(r'remind me (?:in|to) (.+)', transcription, re.IGNORECASE)
+    if match:
+        reminder_details = match.group(1).split("to", 1)
+        if len(reminder_details) == 2:
+            time_str, reminder_message = reminder_details
+            time_str = time_str.strip()
+            reminder_message = reminder_message.strip()
+            delay = parse_time_string(time_str)
+            if delay is not None:
+                await channel.send(f"Reminder set for {time_str} from now.")
+                asyncio.create_task(schedule_reminder(channel, delay, time_str, reminder_message))
+                return True
+
     return False
 
 # Discord client event handler for new messages
@@ -569,18 +591,18 @@ async def on_message(msg: discord.Message):
                                     "role": "user",
                                     "content": [
                                         {
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": f"data:image/jpeg;base64,{base64_image}"
+                                            },
+                                        },
+                                        {
                                             "type": "text",
                                             "text": "Base Instruction: \"Describe the image in a very detailed and intricate way, as if you were describing it to a blind person for reasons of accessibility. Begin your response with: \"'Image Description':, \". "
                                             "Extended Instruction: \"Below is a user comment or request. Write a response that appropriately completes the request.\". "
                                             "User's prompt/question regarding the image (Optional input): " + text_content + "\n "
                                             "</s>......"
                                         },
-                                        {
-                                            "type": "image_url",
-                                            "image_url": {
-                                                "url": f"data:image/jpeg;base64,{base64_image}"
-                                            },
-                                        }
                                     ]
                                 }
                             ]
@@ -737,19 +759,19 @@ async def on_message(msg: discord.Message):
         if search_enabled and reply_chain[0]["content"] and reply_chain[0]["content"][0]["text"]:
             searx_summary = await query_searx(reply_chain[0]["content"][0]["text"])
             if searx_summary:
-                reply_chain[0]["content"][0]["text"] += f" [System provided search and retrieval augmentation data for use in crafting summarization of and link citation:] \"{searx_summary}\". [Use this search and augmentation data for summarization and link citation. Provide full links formatted for discord.].\n "
+                reply_chain[0]["content"][0]["text"] += f" [System provided search and retrieval augmentation data for use in crafting summarization of and link citation:] \"{searx_summary}\". [Use this search and augmentation data for summarization and link citation. Provide full links formatted for discord.].\n Summarize the search results for me. Explain it all, I'm not looking at or reading it, you do eet 4 me!"
 
         # Inject cleaned webpage summaries into the history
         for webpage_text in webpage_texts:
             if webpage_text == "Failed to scrape the website.":
                 reply_chain[0]["content"][0]["text"] += f"\n[<system message>Unfortunately, scraping the website has failed. Please inform the user that \"the webscrape failed\" and that they should \"try another source\".</system message>]\n "
             else:
-                reply_chain[0]["content"][0]["text"] += f"\n[<system message>Webpage Scrape for Summarization: {webpage_text} Use this search and augmentation data for summarization and link citation. Provide full links formatted for discord.</system message>]\n "
+                reply_chain[0]["content"][0]["text"] += f"\n[Webpage Scrape for Summarization: {webpage_text} Use this search and augmentation data for summarization and link citation. Provide full links formatted for discord.]\n Summarize this webpage for me. Explain it all, I'm not looking at or reading it, you do eet 4 me!"
 
         # Inject YouTube transcripts into the history
         for youtube_transcript in youtube_transcripts:
             if youtube_transcript:
-                reply_chain[0]["content"][0]["text"] += f"\n[<system message>Default task: The user has provided a youtube URL that was scraped for the following content to summarize: </system message>\nYouTube Transcript: {youtube_transcript} Use this for summarization and link citation. Provide full links formatted for discord.]\n "
+                reply_chain[0]["content"][0]["text"] += f"\n[<system message>Default task: The user has provided a youtube URL that was scraped for the following content to summarize: </system message>\nYouTube Transcript: {youtube_transcript} Use this for summarization and link citation. Provide full links formatted for discord.]\n Summarize this vid for me. Explain it all, I'm not watching or reading it, you do eet 4 me!"
 
         # Handle images sent by the user
         for attachment in msg.attachments:
