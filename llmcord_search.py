@@ -590,18 +590,19 @@ async def on_message(msg: discord.Message):
                                 {
                                     "role": "user",
                                     "content": [
-                                        {
-                                            "type": "image_url",
-                                            "image_url": {
-                                                "url": f"data:image/jpeg;base64,{base64_image}"
-                                            },
-                                        },
+
                                         {
                                             "type": "text",
                                             "text": "Base Instruction: \"Describe the image in a very detailed and intricate way, as if you were describing it to a blind person for reasons of accessibility. Begin your response with: \"'Image Description':, \". "
                                             "Extended Instruction: \"Below is a user comment or request. Write a response that appropriately completes the request.\". "
                                             "User's prompt/question regarding the image (Optional input): " + text_content + "\n "
                                             "</s>......"
+                                        },
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": f"data:image/jpeg;base64,{base64_image}"
+                                            },
                                         },
                                     ]
                                 }
