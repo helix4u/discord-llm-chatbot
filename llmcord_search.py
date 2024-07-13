@@ -668,6 +668,8 @@ async def on_message(msg: discord.Message):
 
                             logging.info(f"Message contains image. Preparing to respond to image. Reply chain length: {len(reply_chain)}")
 
+                            response_msgs = []
+                            response_msg_contents = []
                             prev_content = None
                             edit_msg_task = None
                             async for chunk in await llm_client.chat.completions.create(
