@@ -320,10 +320,11 @@ def parse_time_string(time_str: str) -> int:
         'seventy': 70,
         'eighty': 80,
         'ninety': 90,
-        'hundred': 100
+        'hundred': 100,
+        'an': 1  # Added 'an' to handle cases like "an hour"
     }
     
-    pattern = re.compile(r'(\d+|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)\b)\s*(hour|hours|h|minute|minutes|min|m|second|seconds|sec|s)', re.IGNORECASE)
+    pattern = re.compile(r'(\d+|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|an)\b)\s*(hour|hours|h|minute|minutes|min|m|second|seconds|sec|s)', re.IGNORECASE)
     matches = pattern.findall(time_str)
     
     if not matches:
@@ -413,7 +414,7 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
         reminder_message = match.group(2).strip()
         delay = parse_time_string(time_str)
         if delay is not None:
-            await channel.send(f"Reminder set for {time_str} from now.")
+            await channel.send(f"Reminder set for {time_str} or {delay} from now.")
             asyncio.create_task(schedule_reminder(channel, delay, time_str, reminder_message))
             return True
 	
