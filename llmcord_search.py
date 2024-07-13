@@ -12,6 +12,9 @@ import re
 import base64
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
 import whisper
+from playwright.async_api import async_playwright
+from playwright.sync_api import sync_playwright
+from playwright_stealth import stealth_sync
 
 # Load environment variables from a .env file
 load_dotenv()
@@ -109,23 +112,19 @@ def get_system_prompt() -> list:
 # Function to scrape a website asynchronously with a Chrome user-agent
 async def scrape_website(url: str) -> str:
     logging.info(f"Scraping website: {url}")
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    async with aiohttp.ClientSession(headers=headers) as session:
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)  # Set to False if you need to debug
+        page = await browser.new_page()
         try:
-            async with session.get(url) as response:
-                if response.status == 200:
-                    text = await response.text()
-                    soup = BeautifulSoup(text, 'html.parser')
-                    raw_text = soup.get_text(separator='\n')
-                    cleaned_text = clean_text(raw_text)
-                    return cleaned_text if cleaned_text else "Failed to scrape the website."
-                else:
-                    logging.error(f"Failed to fetch data from {url}. Status code: {response.status}")
+            await page.goto(url, wait_until='networkidle', timeout=60000)  # Ensure the page is fully loaded
+            content = await page.evaluate('document.body.innerText')
+            cleaned_text = clean_text(content)
+            await browser.close()
+            return cleaned_text if cleaned_text else "Failed to scrape the website."
         except Exception as e:
             logging.error(f"An error occurred while fetching data from {url}: {e}")
-    return "Failed to scrape the website."
+            await browser.close()
+            return "Failed to scrape the website."
 
 # Function to detect URLs in a message using regex
 def detect_urls(message_text: str) -> list:
