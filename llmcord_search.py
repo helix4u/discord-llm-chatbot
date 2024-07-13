@@ -249,6 +249,28 @@ async def search_and_summarize(query: str, channel: discord.TextChannel):
     else:
         await channel.send("No search results found.")
 
+# Function to handle the roast and summarize command
+async def roast_and_summarize(url: str, channel: discord.TextChannel):
+    webpage_text = await scrape_website(url)
+    if webpage_text == "Failed to scrape the website.":
+        await channel.send(f"Unfortunately, scraping the website at {url} has failed. Please try another source.")
+    else:
+        cleaned_content = clean_text(webpage_text)
+        prompt = (
+            f"\n[Webpage Scrape for Comedy Routine: {cleaned_content} Use this content to create a professional comedy routine. "
+            "Make it funny, witty, and engaging. Provide full links formatted for discord.]\n"
+        )
+        comedy_routine = await generate_completion(prompt)
+        chunks = chunk_text(comedy_routine)
+        for chunk in chunks:
+            embed = discord.Embed(
+                title="Comedy Routine",
+                description=chunk,
+                url=url,
+                color=discord.Color.purple()
+            )
+            await channel.send(embed=embed)
+
 # Function to schedule a message
 async def schedule_message(channel: discord.TextChannel, delay: int, message: str):
     await asyncio.sleep(delay)
@@ -257,14 +279,51 @@ async def schedule_message(channel: discord.TextChannel, delay: int, message: st
 # Function to parse time strings like '1m', '1h', '2h2m', '30sec', etc.
 def parse_time_string(time_str: str) -> int:
     time_units = {
+        'hour': 3600,
+        'hours': 3600,
         'h': 3600,
-        'm': 60,
-        's': 1,
-        'sec': 1,
+        'minute': 60,
+        'minutes': 60,
         'min': 60,
-        'hour': 3600
+        'm': 60,
+        'second': 1,
+        'seconds': 1,
+        'sec': 1,
+        's': 1
     }
-    pattern = re.compile(r'(\d+)([hms]+|sec|min|hour)')
+    
+    word_to_number = {
+        'one': 1,
+        'two': 2,
+        'three': 3,
+        'four': 4,
+        'five': 5,
+        'six': 6,
+        'seven': 7,
+        'eight': 8,
+        'nine': 9,
+        'ten': 10,
+        'eleven': 11,
+        'twelve': 12,
+        'thirteen': 13,
+        'fourteen': 14,
+        'fifteen': 15,
+        'sixteen': 16,
+        'seventeen': 17,
+        'eighteen': 18,
+        'nineteen': 19,
+        'twenty': 20,
+        'thirty': 30,
+        'forty': 40,
+        'fifty': 50,
+        'sixty': 60,
+        'seventy': 70,
+        'eighty': 80,
+        'ninety': 90,
+        'hundred': 100
+    }
+    
+    pattern = re.compile(r'(\d+|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)\b)\s*(hour|hours|h|minute|minutes|min|m|second|seconds|sec|s)', re.IGNORECASE)
     matches = pattern.findall(time_str)
     
     if not matches:
@@ -272,7 +331,12 @@ def parse_time_string(time_str: str) -> int:
     
     total_seconds = 0
     for value, unit in matches:
-        total_seconds += int(value) * time_units[unit]
+        value = value.lower()
+        if value.isdigit():
+            value = int(value)
+        else:
+            value = word_to_number.get(value, 0)
+        total_seconds += value * time_units[unit.lower()]
     
     return total_seconds
 
@@ -342,6 +406,17 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
     logging.info(f"Transcription: {transcription}")
     await channel.send(embed=discord.Embed(title="User Transcription", description=transcription, color=discord.Color.blue()))
     
+	    # Check for remind me command in voice transcription
+    match = re.search(r'Remind me in (.+?) to (.+)', transcription, re.IGNORECASE)
+    if match:
+        time_str = match.group(1).strip()
+        reminder_message = match.group(2).strip()
+        delay = parse_time_string(time_str)
+        if delay is not None:
+            await channel.send(f"Reminder set for {time_str} from now.")
+            asyncio.create_task(schedule_reminder(channel, delay, time_str, reminder_message))
+            return True
+	
     match = re.search(r'search for (.+)', transcription, re.IGNORECASE)
     if match:
         query = match.group(1)
@@ -410,20 +485,6 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
         else:
             await channel.send(f"No search results found for: {query}")
         return True
-
-    # Check for remind me command in voice transcription
-    match = re.search(r'remind me (?:in|to) (.+)', transcription, re.IGNORECASE)
-    if match:
-        reminder_details = match.group(1).split("to", 1)
-        if len(reminder_details) == 2:
-            time_str, reminder_message = reminder_details
-            time_str = time_str.strip()
-            reminder_message = reminder_message.strip()
-            delay = parse_time_string(time_str)
-            if delay is not None:
-                await channel.send(f"Reminder set for {time_str} from now.")
-                asyncio.create_task(schedule_reminder(channel, delay, time_str, reminder_message))
-                return True
 
     return False
 
@@ -562,10 +623,6 @@ async def on_message(msg: discord.Message):
     if msg.attachments:
         for attachment in msg.attachments:
             if "image" in attachment.content_type:
-                # Clear history
-                message_history[msg.channel.id].clear()
-                msg_nodes.clear()
-                in_progress_msg_ids.clear()
 
                 image_url = attachment.url
                 async with aiohttp.ClientSession() as session:
@@ -578,7 +635,7 @@ async def on_message(msg: discord.Message):
                                 {
                                     "role": "system",
                                     "content": (
-                                        "A chat between a curious user and an artificial intelligence assistant. "
+                                        "A chat between a curious user and an intelligent assistant. "
                                         "The assistant is equipped with a vision model that analyzes the image information that the user provides in the message directly following theirs. It resembles an image description. The description is info from the vision model Use it to describe the image to the user. The assistant gives helpful, detailed, and polite answers to the user's questions. "
                                         "USER: Hi\n ASSISTANT: Hello.\n</s> "
                                         "USER: Who are you?\n ASSISTANT: I am Saṃsāra. I am an intelligent assistant.\n "
@@ -608,10 +665,8 @@ async def on_message(msg: discord.Message):
                                 }
                             ]
 
-                            logging.info(f"Message contains image. Clearing history and preparing to respond to image. Reply chain length: {len(reply_chain)}")
+                            logging.info(f"Message contains image. Preparing to respond to image. Reply chain length: {len(reply_chain)}")
 
-                            response_msgs = []
-                            response_msg_contents = []
                             prev_content = None
                             edit_msg_task = None
                             async for chunk in await llm_client.chat.completions.create(
@@ -688,6 +743,12 @@ async def on_message(msg: discord.Message):
         await search_and_summarize(query, msg.channel)
         return
 
+    # Check for new command: !roast
+    if msg.content.startswith("!roast "):
+        query = msg.content[len("!roast "):].strip()
+        await roast_and_summarize(query, msg.channel)
+        return
+		
     # Check for new command: !remindme
     if msg.content.startswith("!remindme "):
         await handle_reminder_command(msg)
