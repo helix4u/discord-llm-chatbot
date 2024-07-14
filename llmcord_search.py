@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime
 import logging
+import subprocess
 import os
 import json
 from bs4 import BeautifulSoup
@@ -8,6 +9,7 @@ import discord
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 import aiohttp
+import random
 import re
 import base64
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
@@ -109,22 +111,83 @@ def get_system_prompt() -> list:
         }
     ]
 
-# Function to scrape a website asynchronously with a Chrome user-agent
 async def scrape_website(url: str) -> str:
     logging.info(f"Scraping website: {url}")
+    
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)  # Set to False if you need to debug
-        page = await browser.new_page()
+        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        
+        browser = await p.chromium.launch(headless=True)  # Use headless=False to mimic a real user
+        context = await browser.new_context(user_agent=user_agent)
+        page = await context.new_page()
+        
         try:
-            await page.goto(url, wait_until='networkidle', timeout=60000)  # Ensure the page is fully loaded
+            await page.goto(url, wait_until='networkidle', timeout=30000)  # Shortened timeout for faster failure
             content = await page.evaluate('document.body.innerText')
+
+            if not content.strip():  # Check if content is empty or whitespace
+                raise ValueError("No content found")
+
             cleaned_text = clean_text(content)
             await browser.close()
             return cleaned_text if cleaned_text else "Failed to scrape the website."
+        
         except Exception as e:
-            logging.error(f"An error occurred while fetching data from {url}: {e}")
+            logging.error(f"Playwright failed: {e}")
             await browser.close()
+            return await scrape_with_beautifulsoup(url, user_agent)
+
+async def scrape_with_beautifulsoup(url: str, user_agent: str) -> str:
+    logging.info(f"Using BeautifulSoup fallback for: {url}")
+    headers = {
+        'User-Agent': user_agent
+    }
+    
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(url, headers=headers, timeout=30) as response:
+                if response.status != 200:
+                    logging.error(f"Failed to fetch {url} with status code {response.status}")
+                    return scrape_with_curl(url)
+                
+                html = await response.text()
+                soup = BeautifulSoup(html, 'html.parser')
+                content = soup.get_text(separator=' ', strip=True)
+                
+                if not content.strip():
+                    logging.error("No content found using BeautifulSoup")
+                    return scrape_with_curl(url)
+                
+                cleaned_text = clean_text(content)
+                return cleaned_text if cleaned_text else scrape_with_curl(url)
+        
+        except Exception as e:
+            logging.error(f"An error occurred with BeautifulSoup: {e}")
+            return scrape_with_curl(url)
+
+def scrape_with_curl(url: str) -> str:
+    logging.info(f"Using curl fallback for: {url}")
+    try:
+        result = subprocess.run(['curl', '-s', url], capture_output=True, text=True, encoding='utf-8', timeout=30)
+        if result.returncode != 0:
+            logging.error(f"curl failed with return code {result.returncode}")
             return "Failed to scrape the website."
+        
+        html = result.stdout
+        soup = BeautifulSoup(html, 'html.parser')
+        content = soup.get_text(separator=' ', strip=True)
+        
+        if not content.strip():
+            logging.error("No content found using curl")
+            return "Failed to scrape the website."
+        
+        cleaned_text = clean_text(content)
+        return cleaned_text if cleaned_text else "Failed to scrape the website."
+    
+    except Exception as e:
+        logging.error(f"An error occurred with curl: {e}")
+        return "Failed to scrape the website."
+
 
 # Function to detect URLs in a message using regex
 def detect_urls(message_text: str) -> list:
@@ -234,7 +297,7 @@ async def search_and_summarize(query: str, channel: discord.TextChannel):
                     await channel.send(f"Unfortunately, scraping the website at {url} has failed. Please try another source.")
                 else:
                     cleaned_content = clean_text(webpage_text)
-                    prompt = f"\n[<system message>Webpage scrape to be used for summarization: {cleaned_content} Use this as search and augmentation data for summarization and link citation. Provide full links formatted for discord.</system message>]\n "
+                    prompt = f"\n[<system message>Webpage scrape to be used for summarization: {cleaned_content}</system message>\n<system message>***Use this content to create a concise and accurate summary. Provide full links formatted for discord.***</system message>]\n"
                     summary = await generate_completion(prompt)
                     chunks = chunk_text(summary)
                     for chunk in chunks:
@@ -257,18 +320,57 @@ async def roast_and_summarize(url: str, channel: discord.TextChannel):
         cleaned_content = clean_text(webpage_text)
         prompt = (
             f"\n[Webpage Scrape for Comedy Routine: {cleaned_content} Use this content to create a professional comedy routine. "
-            "Make it funny, witty, and engaging. Provide full links formatted for discord.]\n"
+            "Make it funny, witty, and engaging. Any links provided should be full links formatted for discord.]\n"
         )
         comedy_routine = await generate_completion(prompt)
         chunks = chunk_text(comedy_routine)
+        
+        # Initialize tracking variables
+        response_msgs = []
+        response_msg_contents = []
+        prev_content = None
+        edit_msg_task = None
+        last_msg_task_time = datetime.now().timestamp()
+        in_progress_msg_ids = []
+        EMBED_COLOR = {"incomplete": discord.Color.orange(), "complete": discord.Color.green()}
+        EMBED_MAX_LENGTH = 4096
+        EDITS_PER_SECOND = 1.3
+
+        # Create an initial message to edit later
+        reply_msg = await channel.send(embed=discord.Embed(title="Comedy Routine", description="⏳", color=EMBED_COLOR["incomplete"]))
+        response_msgs.append(reply_msg)
+        response_msg_contents.append("")
+
         for chunk in chunks:
-            embed = discord.Embed(
-                title="Comedy Routine",
-                description=chunk,
-                url=url,
-                color=discord.Color.purple()
-            )
-            await channel.send(embed=embed)
+            curr_content = chunk or ""
+            if prev_content:
+                if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
+                    reply_msg = await channel.send(embed=discord.Embed(title="Comedy Routine", description="⏳", color=EMBED_COLOR["incomplete"]))
+                    response_msgs.append(reply_msg)
+                    response_msg_contents.append("")
+                response_msg_contents[-1] += prev_content
+                final_msg_edit = len(response_msg_contents[-1] + curr_content) > EMBED_MAX_LENGTH or curr_content == ""
+                if final_msg_edit or (not edit_msg_task or edit_msg_task.done()) and datetime.now().timestamp() - last_msg_task_time >= len(in_progress_msg_ids) / EDITS_PER_SECOND:
+                    while edit_msg_task and not edit_msg_task.done():
+                        await asyncio.sleep(0)
+                    if response_msg_contents[-1].strip():
+                        embed = discord.Embed(title="Comedy Routine", description=response_msg_contents[-1], color=EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"])
+                        edit_msg_task = asyncio.create_task(response_msgs[-1].edit(embed=embed))
+                        last_msg_task_time = datetime.now().timestamp()
+            prev_content = curr_content
+
+        # Final edit after all chunks are processed
+        if prev_content:
+            if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
+                reply_msg = await channel.send(embed=discord.Embed(title="Comedy Routine", description="⏳", color=EMBED_COLOR["incomplete"]))
+                response_msgs.append(reply_msg)
+                response_msg_contents.append("")
+            response_msg_contents[-1] += prev_content
+            embed = discord.Embed(title="Comedy Routine", description=response_msg_contents[-1], url=url, color=EMBED_COLOR["complete"])
+            await response_msgs[-1].edit(embed=embed)
+
+        # Log the final message
+        logging.info(f"Final message sent: {response_msg_contents[-1]}")
 
 # Function to schedule a message
 async def schedule_message(channel: discord.TextChannel, delay: int, message: str):
