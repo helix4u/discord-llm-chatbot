@@ -13,8 +13,7 @@ import random
 import re
 import base64
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
-import torch
-import gc
+import whisper
 from playwright.async_api import async_playwright
 from playwright.sync_api import sync_playwright
 from playwright_stealth import stealth_sync
@@ -32,6 +31,9 @@ logging.basicConfig(
 
 # Initialize the OpenAI client with the URL of your local AI server
 llm_client = AsyncOpenAI(base_url=os.getenv("LOCAL_SERVER_URL", "http://localhost:1234/v1"), api_key="lm-studio")
+
+# Initialize Whisper model
+whisper_model = whisper.load_model("tiny")
 
 # Environment variable validation and fallback
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -334,30 +336,13 @@ def download_youtube_video(url: str, output_path: str = "youtube_audio.mp4"):
         print(f"Failed to download YouTube video: {e}")
         return None
 
-def transcribe_audio(file_path: str) -> str:
-    whisper_model = whisper.load_model("tiny")
+async def transcribe_youtube_video(file_path: str, whisper_model) -> str:
     try:
-        # Perform transcription
         result = whisper_model.transcribe(file_path)
-        transcription = result["text"]
-    finally:
-        # Unload Whisper model from VRAM
-        del whisper_model  # This removes the model from memory, not from disk
-        torch.cuda.empty_cache()  # Clears the VRAM
-        gc.collect()  # Ensure all garbage is collected
-    
-    return transcription
-
-async def transcribe_youtube_video(file_path: str) -> str:
-    transcription = transcribe_audio(file_path)
-    if not transcription:
-        print("Transcription failed. Trying to convert format and retry.")
-        try:
-            subprocess.run(['ffmpeg', '-i', file_path, '-ar', '16000', 'converted_audio.wav'])
-            transcription = transcribe_audio('converted_audio.wav')
-        except Exception as e:
-            print(f"Failed to convert and transcribe YouTube video: {e}")
-    return transcription
+        return result["text"]
+    except Exception as e:
+        print(f"Failed to transcribe YouTube video: {e}")
+        return ""
 
 async def main(url: str):
     audio_path = download_youtube_video(url)
@@ -365,11 +350,16 @@ async def main(url: str):
         print("Download failed. Exiting.")
         return
 
-    transcription = await transcribe_youtube_video(audio_path)
-    if transcription:
-        print(f"Transcription: {transcription}")
-    else:
-        print("Transcription failed.")
+    whisper_model = whisper.load_model("tiny")
+    transcription = await transcribe_youtube_video(audio_path, whisper_model)
+    
+    if not transcription:
+        print("Transcription failed. Trying to convert format and retry.")
+        try:
+            subprocess.run(['ffmpeg', '-i', audio_path, '-ar', '16000', 'converted_audio.wav'])
+            transcription = await transcribe_youtube_video('converted_audio.wav', whisper_model)
+        except Exception as e:
+            print(f"Failed to convert and transcribe YouTube video: {e}")
 
 # Function to handle the roast and summarize command
 async def roast_and_summarize(url: str, channel: discord.TextChannel):
@@ -550,14 +540,15 @@ async def generate_reminder(prompt: str) -> str:
         return "Sorry, an error occurred while generating the reminder."
 
 # Function to handle audio attachments and transcribe using Whisper
-async def transcribe_audio_attachment(audio_url: str) -> str:
+async def transcribe_audio(audio_url: str) -> str:
     async with aiohttp.ClientSession() as session:
         async with session.get(audio_url) as resp:
             if resp.status == 200:
                 audio_data = await resp.read()
                 with open("audio_message.mp3", "wb") as audio_file:
                     audio_file.write(audio_data)
-                return transcribe_audio("audio_message.mp3")
+                result = whisper_model.transcribe("audio_message.mp3")
+                return result["text"]
             else:
                 logging.error(f"Failed to download audio file. Status code: {resp.status}")
     return ""
@@ -742,7 +733,7 @@ async def on_message(msg: discord.Message):
                                     {
                                         "role": "assistant",
                                         "content": "".join(response_msg_contents),
-                                        "name": str(response_msg.id),
+                                        "name": str(discord_client.user.id),
                                     },
                                     replied_to=msg_nodes.get(msg.id, None),
                                 )
@@ -759,12 +750,12 @@ async def on_message(msg: discord.Message):
 
     for idx, youtube_transcript in enumerate(youtube_transcripts):
         if not youtube_transcript:
-            youtube_transcripts[idx] = await transcribe_youtube_video(youtube_urls[idx])
+            youtube_transcripts[idx] = await transcribe_youtube_video(youtube_urls[idx], whisper_model)
 
     # Handle audio messages
     for attachment in msg.attachments:
         if "audio" in attachment.content_type or attachment.content_type == "application/ogg":
-            transcription = await transcribe_audio_attachment(attachment.url)
+            transcription = await transcribe_audio(attachment.url)
             if transcription:
                 if await handle_voice_command(transcription, msg.channel):
                     return  # Stop further processing if a voice command was handled
