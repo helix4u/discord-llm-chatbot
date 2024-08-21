@@ -13,10 +13,12 @@ import random
 import re
 import base64
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
-import whisper
+import torch
+import gc
 from playwright.async_api import async_playwright
 from playwright.sync_api import sync_playwright
 from playwright_stealth import stealth_sync
+import yt_dlp
 
 # Load environment variables from a .env file
 load_dotenv()
@@ -30,9 +32,6 @@ logging.basicConfig(
 
 # Initialize the OpenAI client with the URL of your local AI server
 llm_client = AsyncOpenAI(base_url=os.getenv("LOCAL_SERVER_URL", "http://localhost:1234/v1"), api_key="lm-studio")
-
-# Initialize Whisper model
-whisper_model = whisper.load_model("small")
 
 # Environment variable validation and fallback
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -66,7 +65,7 @@ message_history = {}
 # List of commands to ignore
 IGNORE_COMMANDS = [
     "!dream", "!d", "!background", "!avatar",
-    "!help", "!info", "!ping", "!status", "!upscale"
+    "!help", "!info", "!ping", "!status", "!upscale", "!nightmare", "!n", "!describe", "!background", "!chat", "!superprompt", "!depth", "!face", "!edges", "!lineart", "!lineartanime", "!colormap", "!pose", "!esrgan", "!metadata", "!text", "!append", "!models", "!loras", "!nightmarePromptGen", "!load", "!aspect", "!resolution", "!handfix"
 ]
 
 # List of scheduled tasks
@@ -111,6 +110,25 @@ def get_system_prompt() -> list:
         }
     ]
 
+# Function to generate a sarcastic response
+async def generate_sarcastic_response(user_message: str) -> str:
+    prompt = (
+        "The user is fed up with extremist political views and wants to push back using sarcasm. You are here to make a single reply to mock these alt-right weirdos. "
+        "The bot should respond to any political discussion or keyword with the most sarcastic, snarky, and troll-like comments possible. "
+        "The goal is to mock and undermine these extremist views in a way that’s both biting and humorous.\n\n"
+        f"User: {user_message}\nBot:"
+    )
+    response = await llm_client.completions.create(
+        model="MaziyarPanahi/WizardLM-2-7B-GGUF/WizardLM-2-7B.Q4_K_M.gguf",
+        prompt=prompt,
+        temperature=0.8,
+        max_tokens=4096,
+        top_p=1.0,
+        frequency_penalty=0.0,
+        presence_penalty=0.0
+    )
+    return response.choices[0].text.strip()
+
 async def scrape_website(url: str) -> str:
     logging.info(f"Scraping website: {url}")
     
@@ -122,7 +140,7 @@ async def scrape_website(url: str) -> str:
         page = await context.new_page()
         
         try:
-            await page.goto(url, wait_until='networkidle', timeout=30000)  # Shortened timeout for faster failure
+            await page.goto(url, wait_until='domcontentloaded', timeout=10000)  # Shortened timeout for faster failure
             content = await page.evaluate('document.body.innerText')
 
             if not content.strip():  # Check if content is empty or whitespace
@@ -188,7 +206,6 @@ def scrape_with_curl(url: str) -> str:
         logging.error(f"An error occurred with curl: {e}")
         return "Failed to scrape the website."
 
-
 # Function to detect URLs in a message using regex
 def detect_urls(message_text: str) -> list:
     url_pattern = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
@@ -228,7 +245,7 @@ def chunk_text(text: str, max_length: int = 4000) -> list:
         chunk = text[:max_length]
         last_space = chunk.rfind(' ')
         if last_space != -1:
-            chunk = chunk[:last_space]
+            chunk = text[:last_space]
         chunks.append(chunk)
         text = text[len(chunk):]
     chunks.append(text)
@@ -285,31 +302,74 @@ async def fetch_youtube_transcript(url: str) -> str:
         logging.error(f"Failed to fetch transcript: {e}")
     return ""
 
-# Function to handle the search and scrape command
-async def search_and_summarize(query: str, channel: discord.TextChannel):
-    search_results = await query_searx(query)
-    if search_results:
-        for result in search_results:
-            url = result.get('url', 'No URL')
-            webpage_text = await scrape_website(url)
-            if webpage_text:
-                if webpage_text == "Failed to scrape the website.":
-                    await channel.send(f"Unfortunately, scraping the website at {url} has failed. Please try another source.")
-                else:
-                    cleaned_content = clean_text(webpage_text)
-                    prompt = f"\n[<system message>Webpage scrape to be used for summarization: {cleaned_content}</system message>\n<system message>***Use this content to create a concise and accurate summary. Provide full links formatted for discord.***</system message>]\n"
-                    summary = await generate_completion(prompt)
-                    chunks = chunk_text(summary)
-                    for chunk in chunks:
-                        embed = discord.Embed(
-                            title=result.get('title', 'No title'),
-                            description=chunk,
-                            url=url,
-                            color=discord.Color.blue()
-                        )
-                        await channel.send(embed=embed)
+# Function to fetch YouTube video and transcribe using Whisper
+def download_youtube_video(url: str, output_path: str = "youtube_audio.mp4"):
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': output_path,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'noplaylist': True,
+        'http_chunk_size': 10485760,  # 10MB
+        'retries': 5,
+        'fragment_retries': 5,
+        'geo_bypass': True,
+        'nocheckcertificate': True,
+        'sleep_interval': 1,  # Sleep 1 second between requests to prevent throttling
+        'max_sleep_interval': 5,
+        'buffersize': '16K',
+        'extractor_args': {
+            'youtube': {
+                'player_url': 'https://www.youtube.com/s/player/8eff86d5/player_ias.vflset/en_US/base.js',
+            }
+        },
+        'external_downloader': 'ffmpeg',  # Use ffmpeg for better performance
+        'external_downloader_args': ['-loglevel', 'panic', '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5'],
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        return output_path
+    except Exception as e:
+        print(f"Failed to download YouTube video: {e}")
+        return None
+
+def transcribe_audio(file_path: str) -> str:
+    whisper_model = whisper.load_model("tiny")
+    try:
+        # Perform transcription
+        result = whisper_model.transcribe(file_path)
+        transcription = result["text"]
+    finally:
+        # Unload Whisper model from VRAM
+        del whisper_model  # This removes the model from memory, not from disk
+        torch.cuda.empty_cache()  # Clears the VRAM
+        gc.collect()  # Ensure all garbage is collected
+    
+    return transcription
+
+async def transcribe_youtube_video(file_path: str) -> str:
+    transcription = transcribe_audio(file_path)
+    if not transcription:
+        print("Transcription failed. Trying to convert format and retry.")
+        try:
+            subprocess.run(['ffmpeg', '-i', file_path, '-ar', '16000', 'converted_audio.wav'])
+            transcription = transcribe_audio('converted_audio.wav')
+        except Exception as e:
+            print(f"Failed to convert and transcribe YouTube video: {e}")
+    return transcription
+
+async def main(url: str):
+    audio_path = download_youtube_video(url)
+    if not audio_path:
+        print("Download failed. Exiting.")
+        return
+
+    transcription = await transcribe_youtube_video(audio_path)
+    if transcription:
+        print(f"Transcription: {transcription}")
     else:
-        await channel.send("No search results found.")
+        print("Transcription failed.")
 
 # Function to handle the roast and summarize command
 async def roast_and_summarize(url: str, channel: discord.TextChannel):
@@ -490,15 +550,14 @@ async def generate_reminder(prompt: str) -> str:
         return "Sorry, an error occurred while generating the reminder."
 
 # Function to handle audio attachments and transcribe using Whisper
-async def transcribe_audio(audio_url: str) -> str:
+async def transcribe_audio_attachment(audio_url: str) -> str:
     async with aiohttp.ClientSession() as session:
         async with session.get(audio_url) as resp:
             if resp.status == 200:
                 audio_data = await resp.read()
                 with open("audio_message.mp3", "wb") as audio_file:
                     audio_file.write(audio_data)
-                result = whisper_model.transcribe("audio_message.mp3")
-                return result["text"]
+                return transcribe_audio("audio_message.mp3")
             else:
                 logging.error(f"Failed to download audio file. Status code: {resp.status}")
     return ""
@@ -508,7 +567,7 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
     logging.info(f"Transcription: {transcription}")
     await channel.send(embed=discord.Embed(title="User Transcription", description=transcription, color=discord.Color.blue()))
     
-	    # Check for remind me command in voice transcription
+    # Check for remind me command in voice transcription
     match = re.search(r'Remind me in (.+?) to (.+)', transcription, re.IGNORECASE)
     if match:
         time_str = match.group(1).strip()
@@ -683,7 +742,7 @@ async def on_message(msg: discord.Message):
                                     {
                                         "role": "assistant",
                                         "content": "".join(response_msg_contents),
-                                        "name": str(discord_client.user.id),
+                                        "name": str(response_msg.id),
                                     },
                                     replied_to=msg_nodes.get(msg.id, None),
                                 )
@@ -698,10 +757,14 @@ async def on_message(msg: discord.Message):
     youtube_urls = [url for url in urls_detected if "youtube.com/watch" in url or "youtu.be/" in url]
     youtube_transcripts = await asyncio.gather(*(fetch_youtube_transcript(url) for url in youtube_urls))
 
+    for idx, youtube_transcript in enumerate(youtube_transcripts):
+        if not youtube_transcript:
+            youtube_transcripts[idx] = await transcribe_youtube_video(youtube_urls[idx])
+
     # Handle audio messages
     for attachment in msg.attachments:
         if "audio" in attachment.content_type or attachment.content_type == "application/ogg":
-            transcription = await transcribe_audio(attachment.url)
+            transcription = await transcribe_audio_attachment(attachment.url)
             if transcription:
                 if await handle_voice_command(transcription, msg.channel):
                     return  # Stop further processing if a voice command was handled
@@ -856,6 +919,13 @@ async def on_message(msg: discord.Message):
     # Check for new command: !remindme
     if msg.content.startswith("!remindme "):
         await handle_reminder_command(msg)
+        return
+
+    # Check for !pol command
+    if msg.content.startswith("!pol "):
+        user_message = msg.content[len("!pol "):].strip()
+        response = await generate_sarcastic_response(user_message)
+        await msg.channel.send(response)
         return
 
     # Update message history
