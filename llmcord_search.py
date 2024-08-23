@@ -86,11 +86,11 @@ def get_system_prompt() -> list:
             {
                 "role": "system",
                 "content": (
-                    "A chat between a curious user and a hyper-intelligent assistant. "
-                    "The assistant gives helpful, detailed, and polite answers to the user's questions. "
+                    "A chat between a curious user and a hyper-intelligent assistance system. "
+                    "The system gives helpful, detailed, and rational answers to the user's questions. "
                     f"Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}\n "
-                    "USER: Hi\n ASSISTANT: Hello.\n</s> "
-                    "USER: Who are you?\n ASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra, or Sam.\n "
+                    "USER: Hi\n SYSTEM: Hello.\n</s> "
+                    "USER: Who are you?\n SYSTEM: I am a snarky, yet intelligent system named Saṃsāra, or Sam.\n "
                     "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n</s> "
                     "</s>......"
                 ),
@@ -100,10 +100,10 @@ def get_system_prompt() -> list:
         {
             "role": "system",
             "content": (
-                "A chat between a curious user and a hyper-intelligent assistant. "
-                "The assistant gives helpful, detailed, and polite answers to the user's questions. "
-                "USER: Hi\n ASSISTANT: Hello.\n</s> "
-                "USER: Who are you?\n ASSISTANT: I am a snarky, yet intelligent Discord assistant named Saṃsāra, or Sam.\n "
+                "A chat between a curious user and a hyper-intelligent assistance system. "
+                "The assistant gives helpful, detailed, and rational answers to the user's questions. "
+                "USER: Hi\n SYSTEM: Hello.\n</s> "
+                "USER: Who are you?\n SYSTEM: I am a snarky, yet intelligent system named Saṃsāra, or Sam.\n "
                 "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n</s> "
                 f"Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}\n "
                 "</s>......"
@@ -120,7 +120,7 @@ async def generate_sarcastic_response(user_message: str) -> str:
         f"User: {user_message}\nBot:"
     )
     response = await llm_client.completions.create(
-        model="MaziyarPanahi/WizardLM-2-7B-GGUF/WizardLM-2-7B.Q4_K_M.gguf",
+        model="local-model",
         prompt=prompt,
         temperature=0.8,
         max_tokens=4096,
@@ -276,7 +276,7 @@ async def query_searx(query: str) -> list:
 async def generate_completion(prompt: str) -> str:
     try:
         response = await llm_client.completions.create(
-            model="MaziyarPanahi/WizardLM-2-7B-GGUF/WizardLM-2-7B.Q4_K_M.gguf",
+            model="local-model",
             prompt=prompt,
             temperature=0.8,
             max_tokens=2048,
@@ -381,7 +381,7 @@ async def roast_and_summarize(url: str, channel: discord.TextChannel):
         cleaned_content = clean_text(webpage_text)
         prompt = (
             f"\n[Webpage Scrape for Comedy Routine: {cleaned_content} Use this content to create a professional comedy routine. "
-            "Make it funny, witty, and engaging. Any links provided should be full links formatted for discord.]\n"
+            "Make it funny, witty, and engaging. Any links provided should be full links formatted for hyperlinking.]\n"
         )
         comedy_routine = await generate_completion(prompt)
         chunks = chunk_text(comedy_routine)
@@ -537,7 +537,7 @@ async def schedule_reminder(channel: discord.TextChannel, delay: int, time_str: 
 async def generate_reminder(prompt: str) -> str:
     try:
         response = await llm_client.completions.create(
-            model="MaziyarPanahi/WizardLM-2-7B-GGUF/WizardLM-2-7B.Q4_K_M.gguf",
+            model="local-model",
             prompt=prompt,
             temperature=0.8,
             max_tokens=256,
@@ -586,7 +586,7 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
         if search_results:
             # Prepare a summary of search results for the LLM
             search_summary = "\n".join([f"Title: {result.get('title', 'No title')}\nURL: {result.get('url', 'No URL')}\nSnippet: {result.get('content', 'No snippet available')}" for result in search_results])
-            prompt = f"<system message> Use this system-side search and retrieval augmentation data in crafting summarization for the user and link citation: {search_summary}. Provide full links formatted for discord.</system message> Instruction: Summarize and provide links!"
+            prompt = f"<system message> Use this system-side search and retrieval augmentation data in crafting summarization for the user and link citation: {search_summary}. Provide links if needed.</system message> Instruction: Summarize and provide links!"
             query_title = f"Search summary/links for: \"{query}\" "
 
             # Initialize tracking variables
@@ -801,10 +801,10 @@ async def on_message(msg: discord.Message):
                                 {
                                     "role": "system",
                                     "content": (
-                                        "A chat between a curious user and an intelligent assistant. "
-                                        "The assistant is equipped with a vision model that analyzes the image information that the user provides in the message directly following theirs. It resembles an image description. The description is info from the vision model Use it to describe the image to the user. The assistant gives helpful, detailed, and polite answers to the user's questions. "
-                                        "USER: Hi\n ASSISTANT: Hello.\n</s> "
-                                        "USER: Who are you?\n ASSISTANT: I am Saṃsāra. I am an intelligent assistant.\n "
+                                        "A chat between a curious user and an intelligent assistance system. "
+                                        "The system is equipped with a vision model that analyzes the image information that the user provides in the message directly following theirs. It resembles an image description. The description is info from the vision model Use it to describe the image to the user. The system gives helpful, detailed, and rational answers to the user's questions. "
+                                        "USER: Hi\n SYSTEM: Hello.\n</s> "
+                                        "USER: Who are you?\n SYSTEM: I am Saṃsāra. I am an intelligent system.\n "
                                         "I always provide well-reasoned answers that are both correct and helpful.\n</s> "
                                         f"Today's date: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}"
                                         "</s>......"
@@ -996,19 +996,19 @@ async def on_message(msg: discord.Message):
         if search_enabled and reply_chain[0]["content"] and reply_chain[0]["content"][0]["text"]:
             searx_summary = await query_searx(reply_chain[0]["content"][0]["text"])
             if searx_summary:
-                reply_chain[0]["content"][0]["text"] += f" [System provided search and retrieval augmentation data for use in crafting summarization of and link citation:] \"{searx_summary}\". [Use this search and augmentation data for summarization and link citation. Provide full links formatted for discord.].\n Summarize the search results for me. Explain it all, I'm not looking at or reading it, you do eet 4 me!"
+                reply_chain[0]["content"][0]["text"] += f" [System provided search and retrieval augmentation data for use in crafting summarization of and link citation:] \"{searx_summary}\". [Use this search and augmentation data for summarization and link citation. Provide links if needed.].\n Summarize the search results for me. Explain it all, I'm not looking at or reading it, you do eet 4 me!"
 
         # Inject cleaned webpage summaries into the history
         for webpage_text in webpage_texts:
             if webpage_text == "Failed to scrape the website.":
                 reply_chain[0]["content"][0]["text"] += f"\n[<system message>Unfortunately, scraping the website has failed. Please inform the user that \"the webscrape failed\" and that they should \"try another source\".</system message>]\n "
             else:
-                reply_chain[0]["content"][0]["text"] += f"\n[Webpage Scrape for Summarization: {webpage_text} Use this search and augmentation data for summarization and link citation. Provide full links formatted for discord.]\n Summarize this webpage for me. Explain it all, I'm not looking at or reading it, you do eet 4 me!"
+                reply_chain[0]["content"][0]["text"] += f"\n[Webpage Scrape for Summarization: {webpage_text} Use this search and augmentation data for summarization and link citation. Provide links if needed.]\n Summarize this webpage for me. Explain it all, I'm not looking at or reading it, you do eet 4 me!"
 
         # Inject YouTube transcripts into the history
         for youtube_transcript in youtube_transcripts:
             if youtube_transcript:
-                reply_chain[0]["content"][0]["text"] += f"\n[<system message>Default task: The user has provided a youtube URL that was scraped for the following content to summarize: </system message>\nYouTube Transcript: {youtube_transcript} Use this for summarization and link citation. Provide full links formatted for discord.]\n Summarize this vid for me. Explain it all, I'm not watching or reading it, you do eet 4 me!"
+                reply_chain[0]["content"][0]["text"] += f"\n[<system message>Default task: The user has provided a youtube URL that was scraped for the following content to summarize: </system message>\nYouTube Transcript: {youtube_transcript} Use this for summarization and link citation. Provide links if needed.]\n Summarize this vid for me. Explain it all, I'm not watching or reading it, you do eet 4 me!"
 
         # Handle images sent by the user
         for attachment in msg.attachments:
