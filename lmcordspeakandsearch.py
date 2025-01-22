@@ -672,6 +672,9 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
 
 @discord_client.event
 async def on_message(msg: discord.Message):
+    if msg.author == discord_client.user:
+        return
+		
     logging.info(f"Received message: {msg.content} from {msg.author.name}")
     user_warnings = set()
 
