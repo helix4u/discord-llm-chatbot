@@ -47,7 +47,7 @@ async def tts_request(text: str, speed: float = 1.3) -> bytes:
     Send a TTS request to the local Kokoro-FastAPI server and return 
     raw MP3 bytes with corrected length metadata.
     """
-    cleaned_text = re.sub(r'\*+', '', text)
+    cleaned_text = re.sub(r'[\*#]+', '', text)
 	
     payload = {
         "input": cleaned_text,
@@ -444,7 +444,7 @@ async def roast_and_summarize(url: str, channel: discord.TextChannel):
         in_progress_msg_ids = []
         EMBED_COLOR = {"incomplete": discord.Color.orange(), "complete": discord.Color.green()}
         EMBED_MAX_LENGTH = 4096
-        EDITS_PER_SECOND = 1.3
+        EDITS_PER_SECOND = 1.0
 
         reply_msg = await channel.send(embed=discord.Embed(title="Comedy Routine", description="⏳", color=EMBED_COLOR["incomplete"]))
         response_msgs.append(reply_msg)
