@@ -47,8 +47,10 @@ async def tts_request(text: str, speed: float = 1.3) -> bytes:
     Send a TTS request to the local Kokoro-FastAPI server and return 
     raw MP3 bytes with corrected length metadata.
     """
+    cleaned_text = re.sub(r'\*+', '', text)
+	
     payload = {
-        "input": text,
+        "input": cleaned_text,
         "voice": TTS_VOICE,
         "response_format": "mp3",
         "speed": speed,
