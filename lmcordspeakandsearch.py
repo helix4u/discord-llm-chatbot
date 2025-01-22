@@ -21,14 +21,31 @@ from playwright_stealth import stealth_sync
 import yt_dlp
 import whisper
 import io  # <-- Needed for building audio attachments in-memory
+from pydub import AudioSegment
 
-# TTS-Related: We'll define a function to call your local Kokoro-FastAPI TTS server.
-TTS_API_URL = "http://localhost:8880/v1/audio/speech"  # Adjust to match your TTS server endpoint
-TTS_VOICE = "af_sky+af+af_nicole"  # Replace with your desired voice ID
+# -------------------------------------------------------------------
+# Helper function to re-encode MP3 data and fix length metadata
+# -------------------------------------------------------------------
+def fix_mp3_length(mp3_data: bytes) -> bytes:
+    """
+    Re-encode MP3 in-memory via pydub to ensure correct length metadata.
+    """
+    audio = AudioSegment.from_file(io.BytesIO(mp3_data), format="mp3")
+    output_buffer = io.BytesIO()
+    # Export with a standard bitrate; adjust if you like
+    audio.export(output_buffer, format="mp3", bitrate="128k")
+    return output_buffer.getvalue()
+
+# -------------------------------------------------------------------
+# TTS Configuration
+# -------------------------------------------------------------------
+TTS_API_URL = "http://localhost:8880/v1/audio/speech"  # Adjust to match your TTS server
+TTS_VOICE = "af_sky+af+af_nicole"
 
 async def tts_request(text: str, speed: float = 1.3) -> bytes:
     """
-    Send a TTS request to the local Kokoro-FastAPI server and return raw MP3 bytes.
+    Send a TTS request to the local Kokoro-FastAPI server and return 
+    raw MP3 bytes with corrected length metadata.
     """
     payload = {
         "input": text,
@@ -40,7 +57,10 @@ async def tts_request(text: str, speed: float = 1.3) -> bytes:
         async with aiohttp.ClientSession() as session:
             async with session.post(TTS_API_URL, json=payload) as resp:
                 if resp.status == 200:
-                    return await resp.read()  # raw MP3 bytes
+                    mp3_raw = await resp.read()
+                    # Re-encode to ensure correct MP3 length headers
+                    mp3_fixed = fix_mp3_length(mp3_raw)
+                    return mp3_fixed
                 else:
                     err_txt = await resp.text()
                     logging.error(f"TTS request failed: status={resp.status}, resp={err_txt}")
