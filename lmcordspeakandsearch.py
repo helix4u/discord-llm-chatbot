@@ -136,13 +136,7 @@ def get_system_prompt() -> list:
             {
                 "role": "system",
                 "content": (
-                    "A chat between a curious user and a hyper-intelligent assistance system. "
-                    "The system gives helpful, detailed, and rational answers to the user's questions. "
-                    f"Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}\n "
-                    "USER: Hi\n SYSTEM: Hello.\n</s> "
-                    "USER: Who are you?\n SYSTEM: I am a snarky, yet intelligent system named Saṃsāra, or Sam.\n "
-                    "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n</s> "
-                    "</s>......"
+                    f"A chat between a curious user and a hyper-intelligent assistance entity named Sam. Sam gives helpful, detailed, and rational answers to the user's questions. Sam creates an initial reaction, considers the context, makes a plan of action and a rationale and evaluates it for logical failings before responding. Provocative Endings: Each reflection concludes with a question or thought provoking further exploration. Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}\n "
                 ),
             }
         ]
@@ -150,13 +144,7 @@ def get_system_prompt() -> list:
         {
             "role": "system",
             "content": (
-                "A chat between a curious user and a hyper-intelligent assistance system. "
-                "The assistant gives helpful, detailed, and rational answers to the user's questions. "
-                "USER: Hi\n SYSTEM: Hello.\n</s> "
-                "USER: Who are you?\n SYSTEM: I am a snarky, yet intelligent system named Saṃsāra, or Sam.\n "
-                "I always provide well-reasoned answers that are both correct and helpful and sometimes snarky or witty.\n</s> "
-                f"Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}\n "
-                "</s>......"
+                f"A chat between a curious user and a hyper-intelligent assistance entity named Sam. Sam gives helpful, detailed, and rational answers to the user's questions. Sam creates an initial reaction, considers the context, makes a plan of action and a rationale and evaluates it for logical failings before responding. Provocative Endings: Each reflection concludes with a question or thought provoking further exploration. Chat Date Timestamped: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}\n "
             ),
         }
     ]
@@ -444,7 +432,7 @@ async def roast_and_summarize(url: str, channel: discord.TextChannel):
         in_progress_msg_ids = []
         EMBED_COLOR = {"incomplete": discord.Color.orange(), "complete": discord.Color.green()}
         EMBED_MAX_LENGTH = 4096
-        EDITS_PER_SECOND = 1.0
+        EDITS_PER_SECOND = 1.3
 
         reply_msg = await channel.send(embed=discord.Embed(title="Comedy Routine", description="⏳", color=EMBED_COLOR["incomplete"]))
         response_msgs.append(reply_msg)
@@ -1061,7 +1049,7 @@ async def on_message(msg: discord.Message):
         prev_content = None
         edit_msg_task = None
 
-        # The main streaming response from your local LLM:
+        # Main streaming response logic
         async for chunk in await llm_client.chat.completions.create(
             model=os.getenv("LLM"),
             messages=get_system_prompt() + reply_chain[::-1],
@@ -1070,23 +1058,29 @@ async def on_message(msg: discord.Message):
         ):
             curr_content = chunk.choices[0].delta.content or ""
             if prev_content:
+                # Check if a new message needs to be started
                 if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
                     reply_msg = msg if not response_msgs else response_msgs[-1]
                     embed = discord.Embed(description="⏳", color=EMBED_COLOR["incomplete"])
                     for warning in sorted(user_warnings):
                         embed.add_field(name=warning, value="", inline=False)
-                    response_msgs += [
+                    response_msgs.append(
                         await reply_msg.reply(
                             embed=embed,
                             silent=True,
                         )
-                    ]
+                    )
                     in_progress_msg_ids.append(response_msgs[-1].id)
+                    response_msg_contents.append("")
                     last_msg_task_time = datetime.now().timestamp()
-                    response_msg_contents += [""]
+        
+                # Add current content to the latest message
                 response_msg_contents[-1] += prev_content
-
-                final_msg_edit = (len(response_msg_contents[-1] + curr_content) > EMBED_MAX_LENGTH) or (curr_content == "")
+        
+                # Determine if the message is complete
+                final_msg_edit = (
+                    len(response_msg_contents[-1] + curr_content) > EMBED_MAX_LENGTH or curr_content == ""
+                )
                 if final_msg_edit or (not edit_msg_task or edit_msg_task.done()):
                     while edit_msg_task and not edit_msg_task.done():
                         await asyncio.sleep(0)
@@ -1094,53 +1088,80 @@ async def on_message(msg: discord.Message):
                         embed.description = response_msg_contents[-1]
                     embed.color = EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"]
                     edit_msg_task = asyncio.create_task(response_msgs[-1].edit(embed=embed))
-
-                    # TTS Step: If we've finalized this chunk, we can TTS it.
+        
+                    # TTS Step for finalized message
                     if final_msg_edit:
-                        text_for_tts = response_msg_contents[-1]  # The chunk that was just finalized
+                        text_for_tts = response_msg_contents[-1]
                         tts_bytes = await tts_request(text_for_tts)
                         if tts_bytes:
                             tts_file = discord.File(io.BytesIO(tts_bytes), filename="tts_chunk.mp3")
-                            # We'll reply with the audio version:
                             await response_msgs[-1].reply(
-                                content="**Audio version of the above text**:",
+                                content="**Audio version of the above text:**",
                                 file=tts_file
                             )
-
+        
+                        # Handle <think> tags
+                        if "<think>" in text_for_tts and "</think>" in text_for_tts:
+                            think_text = text_for_tts.split("<think>")[1].split("</think>")[0].strip()
+                            following_text = text_for_tts.split("</think>")[1].strip()
+        
+                            # Create and send "Thoughts" embed and TTS
+                            think_embed = discord.Embed(
+                                title="Thoughts",
+                                description=think_text,
+                                color=EMBED_COLOR["complete"]
+                            )
+                            think_msg = await msg.reply(embed=think_embed)
+                            think_tts_bytes = await tts_request(think_text)
+                            if think_tts_bytes:
+                                think_tts_file = discord.File(io.BytesIO(think_tts_bytes), filename="think_tts.mp3")
+                                await think_msg.reply(
+                                    content="**Audio version of the thoughts:**",
+                                    file=think_tts_file
+                                )
+        
+                            # Create and send "Reply" embed and TTS
+                            if following_text.strip():
+                                reply_embed = discord.Embed(
+                                    title="Reply",
+                                    description=following_text,
+                                    color=EMBED_COLOR["complete"]
+                                )
+                                follow_msg = await msg.reply(embed=reply_embed)
+                                follow_tts_bytes = await tts_request(following_text)
+                                if follow_tts_bytes:
+                                    follow_tts_file = discord.File(io.BytesIO(follow_tts_bytes), filename="follow_tts.mp3")
+                                    await follow_msg.reply(
+                                        content="**Audio version of the reply:**",
+                                        file=follow_tts_file
+                                    )
+        
                 last_msg_task_time = datetime.now().timestamp()
             prev_content = curr_content
-
-        # After the stream ends, we may still have 'prev_content' leftover
+        
+        # After the stream ends, process any remaining 'prev_content'
         if prev_content:
-            # Same logic: push that final leftover text
+            # Check if a new embed is required for leftover text
             if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
-                reply_msg = msg if not response_msgs else response_msgs[-1]
-                embed = discord.Embed(description="⏳", color=EMBED_COLOR["incomplete"])
-                for warning in sorted(user_warnings):
-                    embed.add_field(name=warning, value="", inline=False)
-                response_msgs += [
-                    await reply_msg.reply(
-                        embed=embed,
-                        silent=True,
-                    )
-                ]
-                in_progress_msg_ids.append(response_msgs[-1].id)
-                response_msg_contents += [""]
+                reply_msg = await msg.channel.send(embed=discord.Embed(description="⏳", color=EMBED_COLOR["incomplete"]))
+                response_msgs.append(reply_msg)
+                response_msg_contents.append("")
             response_msg_contents[-1] += prev_content
-
+        
+            # Finalize the embed with the remaining text
             embed = discord.Embed(description=response_msg_contents[-1], color=EMBED_COLOR["complete"])
             await response_msgs[-1].edit(embed=embed)
-
-            # TTS final leftover content:
+        
+            # Generate TTS for the remaining content
             final_text_for_tts = response_msg_contents[-1]
             tts_bytes = await tts_request(final_text_for_tts)
             if tts_bytes:
-                tts_file = discord.File(io.BytesIO(tts_bytes), filename="tts_chunk.mp3")
+                tts_file = discord.File(io.BytesIO(tts_bytes), filename="final_tts.mp3")
                 await response_msgs[-1].reply(
-                    content="**Audio version of the above text**:",
+                    content="**Audio version of the above text:**",
                     file=tts_file
                 )
-
+        
         for response_msg in response_msgs:
             msg_nodes[response_msg.id] = MsgNode(
                 {
