@@ -1106,32 +1106,36 @@ async def on_message(msg: discord.Message):
                             following_text = text_for_tts.split("</think>")[1].strip()
         
                             # Create and send "Thoughts" embed and TTS
+                            '''
                             think_embed = discord.Embed(
                                 title="Thoughts",
                                 description=think_text,
                                 color=EMBED_COLOR["complete"]
                             )
                             think_msg = await msg.reply(embed=think_embed)
+                            '''
                             think_tts_bytes = await tts_request(think_text)
                             if think_tts_bytes:
                                 think_tts_file = discord.File(io.BytesIO(think_tts_bytes), filename="think_tts.mp3")
-                                await think_msg.reply(
+                                await msg.reply(
                                     content="**Audio version of the thoughts:**",
                                     file=think_tts_file
                                 )
         
                             # Create and send "Reply" embed and TTS
                             if following_text.strip():
+                                '''
                                 reply_embed = discord.Embed(
                                     title="Reply",
                                     description=following_text,
                                     color=EMBED_COLOR["complete"]
                                 )
                                 follow_msg = await msg.reply(embed=reply_embed)
+                                '''
                                 follow_tts_bytes = await tts_request(following_text)
                                 if follow_tts_bytes:
                                     follow_tts_file = discord.File(io.BytesIO(follow_tts_bytes), filename="follow_tts.mp3")
-                                    await follow_msg.reply(
+                                    await msg.reply(
                                         content="**Audio version of the reply:**",
                                         file=follow_tts_file
                                     )
