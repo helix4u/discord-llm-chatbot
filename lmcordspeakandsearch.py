@@ -1117,7 +1117,7 @@ async def on_message(msg: discord.Message):
                             think_tts_bytes = await tts_request(think_text)
                             if think_tts_bytes:
                                 think_tts_file = discord.File(io.BytesIO(think_tts_bytes), filename="think_tts.mp3")
-                                await msg.reply(
+                                await response_msgs[-1].reply(
                                     content="**Audio version of the thoughts:**",
                                     file=think_tts_file
                                 )
@@ -1135,7 +1135,7 @@ async def on_message(msg: discord.Message):
                                 follow_tts_bytes = await tts_request(following_text)
                                 if follow_tts_bytes:
                                     follow_tts_file = discord.File(io.BytesIO(follow_tts_bytes), filename="follow_tts.mp3")
-                                    await msg.reply(
+                                    await response_msgs[-1].reply(
                                         content="**Audio version of the reply:**",
                                         file=follow_tts_file
                                     )
