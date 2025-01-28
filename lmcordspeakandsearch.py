@@ -1093,12 +1093,14 @@ async def on_message(msg: discord.Message):
                     if final_msg_edit:
                         text_for_tts = response_msg_contents[-1]
                         tts_bytes = await tts_request(text_for_tts)
+                        '''
                         if tts_bytes:
                             tts_file = discord.File(io.BytesIO(tts_bytes), filename="tts_chunk.mp3")
                             await response_msgs[-1].reply(
                                 content="**Audio version of the above text:**",
                                 file=tts_file
                             )
+                        '''    
         
                         # Handle <think> tags
                         if "<think>" in text_for_tts and "</think>" in text_for_tts:
