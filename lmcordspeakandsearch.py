@@ -168,7 +168,18 @@ async def generate_sarcastic_response(user_message: str) -> str:
     )
     return response.choices[0].text.strip()
 
+
+# Add this helper function near your other helper definitions
+def prepend_prefix(url: str) -> str:
+    prefix = "https://r.jina.ai/"
+    if not url.startswith(prefix):
+        return prefix + url
+    return url
+
 async def scrape_website(url: str) -> str:
+    logging.info(f"Scraping website: {url}")
+    # Prepend the prefix before scraping
+    url = prepend_prefix(url)
     logging.info(f"Scraping website: {url}")
     
     async with async_playwright() as p:
@@ -314,7 +325,7 @@ async def query_searx(query: str) -> list:
 async def generate_completion(prompt: str) -> str:
     try:
         response = await llm_client.completions.create(
-            model="local-model",
+            model="deepseek-r1-distill-llama-8b-abliterated",
             prompt=prompt,
             temperature=0.8,
             max_tokens=2048,
@@ -326,6 +337,32 @@ async def generate_completion(prompt: str) -> str:
     except Exception as e:
         logging.error(f"Failed to generate completion: {e}")
         return "Sorry, an error occurred while generating the response."
+
+# Function to handle the search and scrape command
+async def search_and_summarize(query: str, channel: discord.TextChannel):
+    search_results = await query_searx(query)
+    if search_results:
+        for result in search_results:
+            url = result.get('url', 'No URL')
+            webpage_text = await scrape_website(url)
+            if webpage_text:
+                if webpage_text == "Failed to scrape the website.":
+                    await channel.send(f"Unfortunately, scraping the website at {url} has failed. Please try another source.")
+                else:
+                    cleaned_content = clean_text(webpage_text)
+                    prompt = f"\n[<system message>Webpage scrape to be used for summarization: {cleaned_content} Use this as search and augmentation data for summarization and link citation. Provide full links formatted for discord.</system message>]\n "
+                    summary = await generate_completion(prompt)
+                    chunks = chunk_text(summary)
+                    for chunk in chunks:
+                        embed = discord.Embed(
+                            title=result.get('title', 'No title'),
+                            description=chunk,
+                            url=url,
+                            color=discord.Color.blue()
+                        )
+                        await channel.send(embed=embed)
+    else:
+        await channel.send("No search results found.")
 
 # Function to fetch YouTube transcript
 async def fetch_youtube_transcript(url: str) -> str:
@@ -925,8 +962,7 @@ async def on_message(msg: discord.Message):
         # If the user typed "!sns <some query>"
         if msg.content.startswith("!sns "):
             query = msg.content[len("!sns "):].strip()
-            # you'd presumably do something similar to roast_and_summarize or search logic here
-            # skipping implementation for brevity
+            await search_and_summarize(query, msg.channel)
             return
 
         # If the user typed "!roast <some url>"
