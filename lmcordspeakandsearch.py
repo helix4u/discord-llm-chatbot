@@ -325,7 +325,7 @@ async def query_searx(query: str) -> list:
 async def generate_completion(prompt: str) -> str:
     try:
         response = await llm_client.completions.create(
-            model="deepseek-r1-distill-llama-8b-abliterated",
+            model=os.getenv("LLM"),
             prompt=prompt,
             temperature=0.8,
             max_tokens=2048,
@@ -658,64 +658,41 @@ async def handle_voice_command(transcription: str, channel: discord.TextChannel)
                 f"Title: {result.get('title', 'No title')}\nURL: {result.get('url', 'No URL')}\nSnippet: {result.get('content', 'No snippet available')}"
                 for result in search_results
             ])
-            prompt = f"<system message> Use this system-side search and retrieval augmentation data in crafting summarization for the user and link citation: {search_summary}. Provide links if needed.</system message> Instruction: Summarize and provide links!"
+            prompt = (
+                f"<system message> Use this system-side search and retrieval augmentation data in crafting summarization for the user and link citation: {search_summary}. "
+                "Provide links if needed.</system message> Instruction: Summarize and provide links!"
+            )
             query_title = f"Search summary/links for: \"{query}\" "
 
-            response_msgs = []
-            response_msg_contents = []
-            prev_content = None
-            edit_msg_task = None
-            last_msg_task_time = datetime.now().timestamp()
-            in_progress_msg_ids = []
-
-            async for chunk in await llm_client.chat.completions.create(
+            # Make a single non-streaming API call
+            response = await llm_client.chat.completions.create(
                 model=os.getenv("LLM"),
                 messages=[{"role": "system", "content": prompt}],
                 max_tokens=1024,
-                stream=True,
-            ):
-                curr_content = chunk.choices[0].delta.content or ""
-                if prev_content:
-                    if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
-                        reply_msg = await channel.send(embed=discord.Embed(title=query_title, description="⏳", color=EMBED_COLOR["incomplete"]))
-                        response_msgs.append(reply_msg)
-                        response_msg_contents.append("")
-                    response_msg_contents[-1] += prev_content
-                    final_msg_edit = len(response_msg_contents[-1] + curr_content) > EMBED_MAX_LENGTH or curr_content == ""
-                    if final_msg_edit or datetime.now().timestamp() - last_msg_task_time >= len(in_progress_msg_ids) / EDITS_PER_SECOND:
-                        while edit_msg_task and edit_msg_task is not None and not edit_msg_task.done():
-                            await asyncio.sleep(0)
-                        if response_msg_contents[-1].strip():
-                            embed = discord.Embed(title=query_title, description=response_msg_contents[-1], color=EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"])
-                            edit_msg_task = asyncio.create_task(response_msgs[-1].edit(embed=embed))
-                            last_msg_task_time = datetime.now().timestamp()
-                prev_content = curr_content
+                stream=False,
+            )
+            final_text = response.choices[0].message.content.strip()
 
-            if prev_content:
-                if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
-                    reply_msg = await channel.send(embed=discord.Embed(title=query_title, description="⏳", color=EMBED_COLOR["incomplete"]))
-                    response_msgs.append(reply_msg)
-                    response_msg_contents.append("")
-                response_msg_contents[-1] += prev_content
-                embed = discord.Embed(title=query_title, description=response_msg_contents[-1], color=EMBED_COLOR["complete"])
-                await response_msgs[-1].edit(embed=embed)
+            embed = discord.Embed(
+                title=query_title,
+                description=final_text,
+                color=discord.Color.green(),
+            )
+            sent_msg = await channel.send(embed=embed)
 
-            for response_msg in response_msgs:
-                message_history[channel.id].append(response_msg)
-                message_history[channel.id] = message_history[channel.id][-MAX_MESSAGES:]
-                msg_nodes[response_msg.id] = MsgNode(
-                    {
-                        "role": "assistant",
-                        "content": "".join(response_msg_contents),
-                        "name": str(discord_client.user.id),
-                    },
-                    replied_to=None,
-                )
+            message_history[channel.id].append(sent_msg)
+            message_history[channel.id] = message_history[channel.id][-MAX_MESSAGES:]
+            msg_nodes[sent_msg.id] = MsgNode(
+                {
+                    "role": "assistant",
+                    "content": final_text,
+                    "name": str(discord_client.user.id),
+                },
+                replied_to=None,
+            )
         else:
             await channel.send(f"No search results found for: {query}")
         return True
-
-    return False
 
 @discord_client.event
 async def on_message(msg: discord.Message):
