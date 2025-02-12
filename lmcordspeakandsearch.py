@@ -168,6 +168,23 @@ async def generate_sarcastic_response(user_message: str) -> str:
     )
     return response.choices[0].text.strip()
 
+# Function to send response with tts
+async def send_response_with_tts(channel: discord.TextChannel, title: str, text: str, color=discord.Color.green(), tts_filename="tts_response.mp3"):
+    """
+    Sends an embed with the given title and text, then generates a TTS audio
+    version of the text and sends it as an additional message.
+    """
+    # Send the text response embed.
+    embed = discord.Embed(title=title, description=text, color=color)
+    sent_msg = await channel.send(embed=embed)
+    
+    # Generate TTS audio for the text.
+    tts_bytes = await tts_request(text)
+    if tts_bytes:
+        tts_file = discord.File(io.BytesIO(tts_bytes), filename=tts_filename)
+        await channel.send(content="**Audio version:**", file=tts_file)
+    
+    return sent_msg
 
 # Add this helper function near your other helper definitions
 def prepend_prefix(url: str) -> str:
@@ -361,6 +378,11 @@ async def search_and_summarize(query: str, channel: discord.TextChannel):
                             color=discord.Color.blue()
                         )
                         await channel.send(embed=embed)
+                        # Add TTS for each chunk.
+                        tts_bytes = await tts_request(chunk)
+                        if tts_bytes:
+                            tts_file = discord.File(io.BytesIO(tts_bytes), filename="sns_tts.mp3")
+                            await channel.send(content="**Audio version:**", file=tts_file)
     else:
         await channel.send("No search results found.")
 
@@ -501,6 +523,11 @@ async def roast_and_summarize(url: str, channel: discord.TextChannel):
             response_msg_contents[-1] += prev_content
             embed = discord.Embed(title="Comedy Routine", description=response_msg_contents[-1], url=url, color=EMBED_COLOR["complete"])
             await response_msgs[-1].edit(embed=embed)
+            final_text = response_msg_contents[-1]
+            tts_bytes = await tts_request(final_text)
+            if tts_bytes:
+                tts_file = discord.File(io.BytesIO(tts_bytes), filename="roast_tts.mp3")
+                await response_msgs[-1].reply(content="**Audio version:**", file=tts_file)
 
         logging.info(f"Final message sent: {response_msg_contents[-1]}")
 
@@ -603,6 +630,12 @@ async def schedule_reminder(channel: discord.TextChannel, delay: int, time_str: 
         color=discord.Color.green()
     )
     await channel.send(embed=embed)
+    
+    # Add TTS for the reminder.
+    tts_bytes = await tts_request(response)
+    if tts_bytes:
+        tts_file = discord.File(io.BytesIO(tts_bytes), filename="reminder_tts.mp3")
+        await channel.send(content="**Audio version:**", file=tts_file)
 
 # Function to generate reminder message
 async def generate_reminder(prompt: str) -> str:
