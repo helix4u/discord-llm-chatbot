@@ -469,7 +469,6 @@ async def main(url: str):
     else:
         print("Transcription failed.")
 
-# Function to handle the roast and summarize command
 async def roast_and_summarize(url: str, channel: discord.TextChannel):
     webpage_text = await scrape_website(url)
     if webpage_text == "Failed to scrape the website.":
@@ -493,6 +492,7 @@ async def roast_and_summarize(url: str, channel: discord.TextChannel):
         EMBED_MAX_LENGTH = 4096
         EDITS_PER_SECOND = 1.3
 
+        # Start with the first message
         reply_msg = await channel.send(embed=discord.Embed(title="Comedy Routine", description="⏳", color=EMBED_COLOR["incomplete"]))
         response_msgs.append(reply_msg)
         response_msg_contents.append("")
@@ -500,21 +500,27 @@ async def roast_and_summarize(url: str, channel: discord.TextChannel):
         for chunk in chunks:
             curr_content = chunk or ""
             if prev_content:
+                # If current embed is full, start a new one.
                 if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
                     reply_msg = await channel.send(embed=discord.Embed(title="Comedy Routine", description="⏳", color=EMBED_COLOR["incomplete"]))
                     response_msgs.append(reply_msg)
                     response_msg_contents.append("")
                 response_msg_contents[-1] += prev_content
-                final_msg_edit = len(response_msg_contents[-1] + curr_content) > EMBED_MAX_LENGTH or curr_content == ""
-                if final_msg_edit or (not edit_msg_task or edit_msg_task.done()) and datetime.now().timestamp() - last_msg_task_time >= len(in_progress_msg_ids) / EDITS_PER_SECOND:
+                final_msg_edit = (len(response_msg_contents[-1] + curr_content) > EMBED_MAX_LENGTH) or (curr_content == "")
+                if final_msg_edit or ((not edit_msg_task or edit_msg_task.done()) and datetime.now().timestamp() - last_msg_task_time >= len(in_progress_msg_ids) / EDITS_PER_SECOND):
                     while edit_msg_task and not edit_msg_task.done():
                         await asyncio.sleep(0)
                     if response_msg_contents[-1].strip():
-                        embed = discord.Embed(title="Comedy Routine", description=response_msg_contents[-1], color=EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"])
+                        embed = discord.Embed(
+                            title="Comedy Routine",
+                            description=response_msg_contents[-1],
+                            color=EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"]
+                        )
                         edit_msg_task = asyncio.create_task(response_msgs[-1].edit(embed=embed))
                         last_msg_task_time = datetime.now().timestamp()
             prev_content = curr_content
 
+        # Process any remaining text
         if prev_content:
             if not response_msgs or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
                 reply_msg = await channel.send(embed=discord.Embed(title="Comedy Routine", description="⏳", color=EMBED_COLOR["incomplete"]))
@@ -523,13 +529,16 @@ async def roast_and_summarize(url: str, channel: discord.TextChannel):
             response_msg_contents[-1] += prev_content
             embed = discord.Embed(title="Comedy Routine", description=response_msg_contents[-1], url=url, color=EMBED_COLOR["complete"])
             await response_msgs[-1].edit(embed=embed)
-            final_text = response_msg_contents[-1]
-            tts_bytes = await tts_request(final_text)
-            if tts_bytes:
-                tts_file = discord.File(io.BytesIO(tts_bytes), filename="roast_tts.mp3")
-                await response_msgs[-1].reply(content="**Audio version:**", file=tts_file)
 
         logging.info(f"Final message sent: {response_msg_contents[-1]}")
+
+        # For each embed message, generate and send its corresponding TTS audio.
+        for msg, content in zip(response_msgs, response_msg_contents):
+            tts_bytes = await tts_request(content)
+            if tts_bytes:
+                tts_file = discord.File(io.BytesIO(tts_bytes), filename="roast_tts.mp3")
+                await msg.reply(content="**Audio version:**", file=tts_file)
+
 
 # Function to schedule a message
 async def schedule_message(channel: discord.TextChannel, delay: int, message: str):
