@@ -188,7 +188,8 @@ async def send_response_with_tts(channel: discord.TextChannel, title: str, text:
 
 # Add this helper function near your other helper definitions
 def prepend_prefix(url: str) -> str:
-    prefix = "https://r.jina.ai/"
+    prefix = ""
+    #prefix = "https://r.jina.ai/"
     if not url.startswith(prefix):
         return prefix + url
     return url
@@ -202,7 +203,7 @@ async def scrape_website(url: str) -> str:
     async with async_playwright() as p:
         user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         
-        browser = await p.chromium.launch(headless=True)  # Use headless=False to mimic a real user
+        browser = await p.chromium.launch(headless=False)  # Use headless=False to mimic a real user
         context = await browser.new_context(user_agent=user_agent)
         page = await context.new_page()
         
