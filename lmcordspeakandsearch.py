@@ -158,9 +158,9 @@ async def generate_sarcastic_response(user_message: str) -> str:
         f"User: {user_message}\nBot:"
     )
     response = await llm_client.completions.create(
-        model="local-model",
+        model=os.getenv("LLM"),
         prompt=prompt,
-        temperature=0.8,
+        temperature=0.6,
         max_tokens=4096,
         top_p=1.0,
         frequency_penalty=0.0,
@@ -345,7 +345,7 @@ async def generate_completion(prompt: str) -> str:
         response = await llm_client.completions.create(
             model=os.getenv("LLM"),
             prompt=prompt,
-            temperature=0.8,
+            temperature=0.6,
             max_tokens=2048,
             top_p=1.0,
             frequency_penalty=0.0,
@@ -653,7 +653,7 @@ async def generate_reminder(prompt: str) -> str:
         response = await llm_client.completions.create(
             model=os.getenv("LLM"),
             prompt=prompt,
-            temperature=0.8,
+            temperature=0.6,
             max_tokens=256,
             top_p=1.0,
             frequency_penalty=0.0,
