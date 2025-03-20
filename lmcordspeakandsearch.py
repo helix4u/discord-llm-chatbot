@@ -288,7 +288,7 @@ async def query_searx(query: str) -> list:
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(searx_url, params=params, timeout=5) as response:
+            async with session.get(searx_url, params=params, timeout=15) as response:
                 if response.status == 200:
                     results_json = await response.json()
                     return results_json.get("results", [])[:5]
@@ -665,6 +665,115 @@ async def generate_reminder(prompt: str) -> str:
         return "Sorry, an error occurred while generating the reminder."
 
 # -------------------------------------------------------------------
+# Actually do a single-embed search summary from user typed !search
+# -------------------------------------------------------------------
+async def do_search_and_summarize_in_one_embed(query: str, channel: discord.TextChannel):
+    """
+    1) Query Searx for `query`.
+    2) Combine the top results into a single summary prompt.
+    3) LLM -> final_text
+    4) Partial embed updates (1.3 EPS) for the chunked final_text.
+    """
+    # 1) Query Searx
+    search_results = await query_searx(query)
+    if not search_results:
+        await channel.send(f"No search results found for: {query}")
+        return
+
+    # 2) Merge results
+    lines = []
+    for r in search_results:
+        t = r.get('title', 'No title')
+        u = r.get('url', 'No URL')
+        s = r.get('content', 'No snippet available')
+        lines.append(f"Title: {t}\nURL: {u}\nSnippet: {s}")
+    search_summary = "\n".join(lines)
+
+    # Summarization prompt
+    prompt = (
+        f"<think>Use this system-side search data in summarizing for the user. Provide links if needed.\n"
+        f"Search data:\n{search_summary}\n</think>\n"
+        "Instruction: Summarize and provide links!"
+    )
+
+    # 3) LLM -> final_text
+    resp = await llm_client.chat.completions.create(
+        model=os.getenv("LLM"),
+        messages=[{"role": "system", "content": prompt}],
+        max_tokens=2048,
+        stream=False,
+    )
+    final_text = resp.choices[0].message.content.strip()
+
+    # 4) Chunked partial embed updates at 1.3 EPS
+    text_chunks = chunk_text(final_text, EMBED_MAX_LENGTH)
+    response_msgs = []
+    response_msg_contents = []
+    prev_content = None
+    edit_msg_task = None
+    title_for_embed = f"Search summary for: {query}"
+
+    # Create first embed
+    first_embed = discord.Embed(title=title_for_embed, description="⏳", color=EMBED_COLOR["incomplete"])
+    first_msg = await channel.send(embed=first_embed)
+    response_msgs.append(first_msg)
+    response_msg_contents.append("")
+    last_msg_task_time = datetime.now().timestamp()
+
+    for chunk in text_chunks:
+        if prev_content:
+            # If embed is near full, start new
+            if len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
+                new_embed = discord.Embed(title=title_for_embed, description="⏳", color=EMBED_COLOR["incomplete"])
+                new_msg = await channel.send(embed=new_embed)
+                response_msgs.append(new_msg)
+                response_msg_contents.append("")
+            response_msg_contents[-1] += prev_content
+
+            final_msg_edit = (len(response_msg_contents[-1] + chunk) > EMBED_MAX_LENGTH or chunk == "")
+            # Throttle
+            if final_msg_edit or (not edit_msg_task or edit_msg_task.done()):
+                while edit_msg_task and not edit_msg_task.done():
+                    await asyncio.sleep(0)
+                if response_msg_contents[-1].strip():
+                    embed_upd = discord.Embed(
+                        title=title_for_embed,
+                        description=response_msg_contents[-1],
+                        color=EMBED_COLOR["complete"] if final_msg_edit else EMBED_COLOR["incomplete"]
+                    )
+                    edit_msg_task = asyncio.create_task(response_msgs[-1].edit(embed=embed_upd))
+
+                    # Optional TTS if final
+                    if final_msg_edit:
+                        tts_bytes = await tts_request(response_msg_contents[-1])
+                        if tts_bytes:
+                            tts_file = discord.File(io.BytesIO(tts_bytes), filename="search_chunk.mp3")
+                            await response_msgs[-1].reply(content="**Audio version:**", file=tts_file)
+                last_msg_task_time = datetime.now().timestamp()
+        prev_content = chunk
+
+    # Handle leftover
+    if prev_content:
+        if len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH:
+            extra_embed = discord.Embed(title=title_for_embed, description="⏳", color=EMBED_COLOR["incomplete"])
+            new_msg = await channel.send(embed=extra_embed)
+            response_msgs.append(new_msg)
+            response_msg_contents.append("")
+        response_msg_contents[-1] += prev_content
+
+        final_embed = discord.Embed(
+            title=title_for_embed,
+            description=response_msg_contents[-1],
+            color=EMBED_COLOR["complete"]
+        )
+        await response_msgs[-1].edit(embed=final_embed)
+        leftover_tts = await tts_request(response_msg_contents[-1])
+        if leftover_tts:
+            leftover_file = discord.File(io.BytesIO(leftover_tts), filename="search_final.mp3")
+            await response_msgs[-1].reply(content="**Audio version:**", file=leftover_file)
+
+
+# -------------------------------------------------------------------
 # Whisper-based voice transcription for audio attachments only
 # -------------------------------------------------------------------
 def transcribe_audio(file_path: str) -> str:
@@ -1028,34 +1137,30 @@ async def on_message(msg: discord.Message):
     message_history[msg.channel.id] = message_history[msg.channel.id][-MAX_MESSAGES:]
 
     async with msg.channel.typing():
-        if msg.content:
-            cmd = msg.content.lower().split()[0]
-            if cmd == "!toggle_search":
-                search_enabled = not globals().get('search_enabled', False)
-                globals()['search_enabled'] = search_enabled
-                await msg.channel.send(
-                    f"Search functionality is now {'enabled' if search_enabled else 'disabled'}."
-                )
-                return
-            elif cmd == "!clear_history":
-                logging.info(f"Clearing history for channel: {msg.channel.id}")
-                message_history[msg.channel.id].clear()
-                await msg.channel.send("Message history has been cleared.")
-                return
-            elif cmd == "!search":
-                search_enabled = True
+        # ------------------------------------------------------
+        # Here's the new block to do immediate search with !search
+        # ------------------------------------------------------
+        if msg.content.lower().startswith("!search "):
+            query = msg.content[len("!search "):].strip()
+            await do_search_and_summarize_in_one_embed(query, msg.channel)
+            return
 
         # Additional top-level commands
         if msg.content.startswith("!sns "):
             query = msg.content[len("!sns "):].strip()
-            await search_and_summarize(query, msg.channel)
+            # if you still want your old chunked approach:
+            # await search_and_summarize(query, msg.channel)
+            await do_search_and_summarize_in_one_embed(query, msg.channel)
             return
 
         if msg.content.startswith("!roast "):
             query = msg.content[len("!roast "):].strip()
+            # if you have a chunked streaming approach:
+            # await roast_and_summarize(query, msg.channel)
+            # or do a simpler approach if you like
             await roast_and_summarize(query, msg.channel)
             return
-        
+
         if msg.content.startswith("!remindme "):
             await handle_reminder_command(msg)
             return
@@ -1066,12 +1171,13 @@ async def on_message(msg: discord.Message):
             await msg.channel.send(response)
             return
 
-        # For toggles
-        search_enabled = False
+        # Possibly toggles or leftover commands
+        # (We removed the old toggling for !search, so it's gone)
         if msg.content:
             cmd = msg.content.lower().split()[0]
             if cmd == "!toggle_search":
-                search_enabled = not search_enabled
+                search_enabled = not globals().get('search_enabled', False)
+                globals()['search_enabled'] = search_enabled
                 await msg.channel.send(
                     f"Search functionality is now {'enabled' if search_enabled else 'disabled'}."
                 )
@@ -1084,8 +1190,9 @@ async def on_message(msg: discord.Message):
                 size = len(message_history.get(msg.channel.id, []))
                 await msg.channel.send(f"Current history size: {size}")
                 return
-            elif cmd == "!search":
-                search_enabled = True
+            # if cmd == "!search":
+            #     # Removed. We do real searching above. 
+            #     pass
 
         # Build conversation from past messages
         for curr_msg in message_history[msg.channel.id]:
@@ -1127,18 +1234,8 @@ async def on_message(msg: discord.Message):
                 user_warnings.add(MAX_MESSAGE_WARNING)
                 break
 
-        # If search is enabled, do a searx query
-        if (search_enabled 
-            and reply_chain 
-            and reply_chain[0]["content"] 
-            and isinstance(reply_chain[0]["content"], list) 
-            and reply_chain[0]["content"][0].get("text")):
-            searx_summary = await query_searx(reply_chain[0]["content"][0]["text"])
-            if searx_summary:
-                reply_chain[0]["content"][0]["text"] += (
-                    f" [System provided search and retrieval augmentation data: \"{searx_summary}\". "
-                    f"Summarize the search results and provide links if needed.]"
-                )
+        # Attempt searching if you like (the old toggle-based approach),
+        # but you removed or replaced that with direct !search usage.
 
         # Insert webpage texts
         for webpage_text in webpage_texts:
@@ -1161,8 +1258,6 @@ async def on_message(msg: discord.Message):
                     f"YouTube Transcript: {youtube_transcript} Summarize this video and provide links if needed.]\n"
                 )
 
-        # If images were not handled specifically, they'd be included above, but we handle them already.
-
         logging.info(
             f"Preparing to generate response. History size for channel {msg.channel.id}: "
             f"{len(message_history[msg.channel.id])}, reply chain length: {len(reply_chain)}"
@@ -1173,7 +1268,7 @@ async def on_message(msg: discord.Message):
         prev_content = None
         edit_msg_task = None
 
-        # Main streaming
+        # Main streaming logic
         async for chunk in await llm_client.chat.completions.create(
             model=os.getenv("LLM"),
             messages=get_system_prompt() + reply_chain[::-1],
@@ -1209,7 +1304,6 @@ async def on_message(msg: discord.Message):
                         )
                         edit_msg_task = asyncio.create_task(response_msgs[-1].edit(embed=embed))
 
-                    # TTS step for final
                     if final_msg_edit:
                         text_for_tts = response_msg_contents[-1]
                         tts_bytes = await tts_request(text_for_tts)
@@ -1219,11 +1313,9 @@ async def on_message(msg: discord.Message):
                                 content="**Audio version of the above text:**",
                                 file=tts_file
                             )
-                        # Handle <think> tags
                         if "<think>" in text_for_tts and "</think>" in text_for_tts:
                             think_text = text_for_tts.split("<think>")[1].split("</think>")[0].strip()
                             following_text = text_for_tts.split("</think>")[1].strip()
-                            # TTS for the thoughts
                             think_tts = await tts_request(think_text)
                             if think_tts:
                                 file_think = discord.File(io.BytesIO(think_tts), filename="think_tts.mp3")
@@ -1242,7 +1334,6 @@ async def on_message(msg: discord.Message):
 
             prev_content = curr_content
 
-        # leftover
         if prev_content:
             if (not response_msgs 
                 or len(response_msg_contents[-1] + prev_content) > EMBED_MAX_LENGTH):
@@ -1258,7 +1349,6 @@ async def on_message(msg: discord.Message):
                 color=EMBED_COLOR["complete"]
             )
             await response_msgs[-1].edit(embed=embed)
-            # TTS for leftover
             leftover_tts = await tts_request(response_msg_contents[-1])
             if leftover_tts:
                 leftover_file = discord.File(io.BytesIO(leftover_tts), filename="final_tts.mp3")
