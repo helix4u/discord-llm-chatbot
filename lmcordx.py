@@ -708,35 +708,76 @@ async def generate_reminder(prompt: str) -> str:
         logging.error(f"Failed to generate reminder: {e}")
         return "Sorry, an error occurred while generating the reminder."
 
-async def summarize_tweets(tweets: list) -> str:
+async def summarize_tweets(tweets: list, channel: discord.TextChannel, title: str = "Tweet Summary") -> None:
     if not tweets:
-        return "No tweets to summarize."
-    summary_prompt = (
-        "You are an analyst summarizing the following user's tweets in chronological order. "
-        "Focus on capturing shifts in tone, rhetorical strategy, attention, and any biases. "
-        "Avoid listing each tweet; instead, weave a coherent narrative paragraph. English only.\n\n"
-    )
+        await channel.send("No tweets to summarize.")
+        return
+
+    # Build raw snippet from tweets (chronologically ordered)
     tweets_sorted = sorted(tweets, key=lambda x: x["timestamp"])
     snippet = ""
     for t in tweets_sorted:
         snippet += f"[{t['timestamp']}] @{t['from_user'] or 'unknown'}: {t['content']}\n"
-    summary_prompt += snippet
+
+    # Build the full prompt (instruction + raw tweet snippet)
+    prompt_prefix = (
+        "You are an analyst summarizing the following user's tweets in chronological order. "
+        "Focus on capturing shifts in tone, rhetorical strategy, attention, and any biases. "
+        "Avoid listing each tweet; instead, weave a coherent narrative paragraph. English only.\n\n"
+    )
+    full_prompt = prompt_prefix + snippet
+
+    # Send an initial embed showing the raw snippet and a waiting indicator.
+    initial_embed = Embed(
+        title=title,
+        description=snippet + "\n\n⏳",
+        color=EMBED_COLOR["incomplete"]
+    )
+    msg = await channel.send(embed=initial_embed)
+
+    accumulated = ""  # This will accumulate the streamed summary text.
+    edit_interval = 1 / 1.3  # ~0.77 seconds per edit.
+    last_edit_time = asyncio.get_event_loop().time()
 
     try:
-        resp = await asyncio.wait_for(
-            llm_client.chat.completions.create(
-                model=os.getenv("LLM") or "deepseek-r1-distill-llama-8b-abliterated",
-                messages=[{"role": "user", "content": summary_prompt}],
-                temperature=0.7,
-                max_tokens=1024,
-                stream=False
-            ),
-            timeout=60
+        # IMPORTANT: await the chat completions streaming call!
+        stream = await llm_client.chat.completions.create(
+            model=os.getenv("LLM") or "deepseek-r1-distill-llama-8b-abliterated",
+            messages=[{"role": "user", "content": full_prompt}],
+            temperature=0.7,
+            max_tokens=1024,
+            stream=True
         )
-        return resp.choices[0].message.content.strip()
+        async for chunk in stream:
+            new_piece = chunk.choices[0].delta.content or ""
+            accumulated += new_piece
+            now = asyncio.get_event_loop().time()
+            if now - last_edit_time >= edit_interval:
+                updated_embed = Embed(
+                    title=title,
+                    description=snippet + "\n\nSummary so far:\n" + accumulated,
+                    color=EMBED_COLOR["complete"]
+                )
+                await msg.edit(embed=updated_embed)
+                last_edit_time = now
+
+        # Final update when streaming completes.
+        final_embed = Embed(
+            title=title,
+            description=snippet + "\n\nSummary:\n" + accumulated,
+            color=EMBED_COLOR["complete"]
+        )
+        await msg.edit(embed=final_embed)
     except Exception as e:
-        logging.error(f"Summarization error: {e}")
-        return "An error occurred during summarization."
+        logging.error(f"Error streaming tweet summary: {e}")
+        error_embed = Embed(
+            title=title,
+            description=snippet + "\n\nAn error occurred during summarization.",
+            color=discord.Color.red()
+        )
+        await msg.edit(embed=error_embed)
+
+
 
 async def stream_summary_to_discord(summary_text: str, channel: discord.TextChannel, title="Tweet Summary"):
     EMBED_COLOR = {"incomplete": discord.Color.orange(), "complete": discord.Color.green()}
@@ -1026,11 +1067,9 @@ async def on_message(msg: discord.Message):
         if not tweets:
             await msg.channel.send("No tweets found or scraping failed.")
             return
-        summary_text = await summarize_tweets(tweets)
-        if not summary_text.strip():
-            summary_text = "No meaningful content to summarize."
-        await stream_summary_to_discord(summary_text, msg.channel, title=f"Summary of @{username}'s last tweets")
+        await summarize_tweets(tweets, msg.channel, title=f"Summary of @{username}'s last tweets")
         return
+
 
     # -----------------------------------------------------------------------
     # Handle "!ap" for images
