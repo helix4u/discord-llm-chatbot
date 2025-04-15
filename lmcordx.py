@@ -713,13 +713,13 @@ async def summarize_tweets(tweets: list, channel: discord.TextChannel, title: st
         await channel.send("No tweets to summarize.")
         return
 
-    # Build raw snippet from tweets (ordered chronologically).
+    # Build raw snippet from tweets (chronologically ordered).
     tweets_sorted = sorted(tweets, key=lambda x: x["timestamp"])
     snippet = ""
     for t in tweets_sorted:
         snippet += f"[{t['timestamp']}] @{t['from_user'] or 'unknown'}: {t['content']}\n"
 
-    # Send the raw tweets embed as a separate message so it won't be edited.
+    # Send the raw tweets embed separately.
     raw_embed = Embed(
         title=f"{title} - Raw Tweets",
         description=snippet,
@@ -727,7 +727,7 @@ async def summarize_tweets(tweets: list, channel: discord.TextChannel, title: st
     )
     await channel.send(embed=raw_embed)
 
-    # Build the full prompt (instruction + raw snippet).
+    # Build the prompt for the LLM.
     prompt_prefix = (
         "You are an analyst summarizing the following user's tweets in chronological order. "
         "Focus on capturing shifts in tone, rhetorical strategy, attention, and any biases. "
@@ -735,7 +735,7 @@ async def summarize_tweets(tweets: list, channel: discord.TextChannel, title: st
     )
     full_prompt = prompt_prefix + snippet
 
-    # Send a separate summary embed with a waiting indicator.
+    # Send an initial summary embed (separate from raw tweets)
     summary_embed = Embed(
         title=f"{title} - Summary",
         description="⏳",
@@ -743,12 +743,11 @@ async def summarize_tweets(tweets: list, channel: discord.TextChannel, title: st
     )
     summary_msg = await channel.send(embed=summary_embed)
 
-    accumulated = ""  # Holds the streamed summary text.
-    edit_interval = 1 / 1.3  # ~0.77 seconds per edit.
+    accumulated = ""  # Accumulates streamed summary text.
+    edit_interval = 1 / 1.3  # Approximately 0.77 seconds per edit.
     last_edit_time = asyncio.get_event_loop().time()
 
     try:
-        # Await the streaming LLM response.
         stream = await llm_client.chat.completions.create(
             model=os.getenv("LLM") or "deepseek-r1-distill-llama-8b-abliterated",
             messages=[{"role": "user", "content": full_prompt}],
@@ -758,18 +757,39 @@ async def summarize_tweets(tweets: list, channel: discord.TextChannel, title: st
         )
         async for chunk in stream:
             new_piece = chunk.choices[0].delta.content or ""
-            # If appending the new piece would exceed the embed limit for the summary,
-            # perform a rollover: send the current accumulation as final, then start a new summary embed.
+            # Check if adding new_piece would exceed the embed limit.
             if len(accumulated + new_piece) > EMBED_MAX_LENGTH:
-                final_text = "Summary so far:\n" + accumulated
-                # Ensure final_text is within the limit.
-                final_text = final_text[:EMBED_MAX_LENGTH]
+                # Finalize current summary embed.
+                final_text = "Summary:\n" + accumulated
+                final_text = final_text[:EMBED_MAX_LENGTH]  # Trim to limit if needed.
                 await summary_msg.edit(embed=Embed(
                     title=f"{title} - Summary (Part)",
                     description=final_text,
                     color=EMBED_COLOR["complete"]
                 ))
-                # Roll over: send a new summary embed and reset the accumulated text.
+                # Do TTS for the finalized embed (once):
+                if "<think>" in final_text and "</think>" in final_text:
+                    try:
+                        think_text = final_text.split("<think>")[1].split("</think>")[0].strip()
+                        following_text = final_text.split("</think>")[1].strip()
+                        if think_text:
+                            think_tts = await tts_request(think_text)
+                            if think_tts:
+                                file_think = File(io.BytesIO(think_tts), filename="final_think_tts.mp3")
+                                await summary_msg.reply(content="**Audio version of final thoughts:**", file=file_think)
+                        if following_text:
+                            follow_tts = await tts_request(following_text)
+                            if follow_tts:
+                                file_follow = File(io.BytesIO(follow_tts), filename="final_follow_tts.mp3")
+                                await summary_msg.reply(content="**Audio version of final reply:**", file=file_follow)
+                    except Exception as tts_e:
+                        logging.error(f"Final TTS think splitting error: {tts_e}")
+                else:
+                    tts_bytes = await tts_request(final_text)
+                    if tts_bytes:
+                        tts_file = File(io.BytesIO(tts_bytes), filename="final_tts.mp3")
+                        await summary_msg.reply(content="**Audio version of final summary:**", file=tts_file)
+                # Rollover: Create a new summary embed and reset accumulation.
                 summary_msg = await channel.send(embed=Embed(
                     title=f"{title} - Summary (Continued)",
                     description="⏳",
@@ -783,7 +803,6 @@ async def summarize_tweets(tweets: list, channel: discord.TextChannel, title: st
             now = asyncio.get_event_loop().time()
             if now - last_edit_time >= edit_interval:
                 updated_text = "Summary so far:\n" + accumulated
-                # If the update text exceeds the limit, trim it.
                 if len(updated_text) > EMBED_MAX_LENGTH:
                     updated_text = updated_text[:EMBED_MAX_LENGTH]
                 await summary_msg.edit(embed=Embed(
@@ -802,6 +821,28 @@ async def summarize_tweets(tweets: list, channel: discord.TextChannel, title: st
             description=final_text,
             color=EMBED_COLOR["complete"]
         ))
+        # Final TTS for the completed summary embed (only once).
+        if "<think>" in final_text and "</think>" in final_text:
+            try:
+                think_text = final_text.split("<think>")[1].split("</think>")[0].strip()
+                following_text = final_text.split("</think>")[1].strip()
+                if think_text:
+                    think_tts = await tts_request(think_text)
+                    if think_tts:
+                        file_think = File(io.BytesIO(think_tts), filename="final_think_tts.mp3")
+                        await summary_msg.reply(content="**Audio version of final thoughts:**", file=file_think)
+                if following_text:
+                    follow_tts = await tts_request(following_text)
+                    if follow_tts:
+                        file_follow = File(io.BytesIO(follow_tts), filename="final_follow_tts.mp3")
+                        await summary_msg.reply(content="**Audio version of final reply:**", file=file_follow)
+            except Exception as tts_e:
+                logging.error(f"Final TTS think splitting error: {tts_e}")
+        else:
+            tts_bytes = await tts_request(final_text)
+            if tts_bytes:
+                tts_file = File(io.BytesIO(tts_bytes), filename="final_tts.mp3")
+                await summary_msg.reply(content="**Audio version of final summary:**", file=tts_file)
     except Exception as e:
         logging.error(f"Error streaming tweet summary: {e}")
         if accumulated:
@@ -819,6 +860,8 @@ async def summarize_tweets(tweets: list, channel: discord.TextChannel, title: st
                 description="An error occurred during summarization.",
                 color=discord.Color.red()
             ))
+
+
 
 
 
