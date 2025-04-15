@@ -713,13 +713,21 @@ async def summarize_tweets(tweets: list, channel: discord.TextChannel, title: st
         await channel.send("No tweets to summarize.")
         return
 
-    # Build raw snippet from tweets (chronologically ordered)
+    # Build raw snippet from tweets (ordered chronologically).
     tweets_sorted = sorted(tweets, key=lambda x: x["timestamp"])
     snippet = ""
     for t in tweets_sorted:
         snippet += f"[{t['timestamp']}] @{t['from_user'] or 'unknown'}: {t['content']}\n"
 
-    # Build the full prompt (instruction + raw tweet snippet)
+    # Send the raw tweets embed as a separate message so it won't be edited.
+    raw_embed = Embed(
+        title=f"{title} - Raw Tweets",
+        description=snippet,
+        color=EMBED_COLOR["incomplete"]
+    )
+    await channel.send(embed=raw_embed)
+
+    # Build the full prompt (instruction + raw snippet).
     prompt_prefix = (
         "You are an analyst summarizing the following user's tweets in chronological order. "
         "Focus on capturing shifts in tone, rhetorical strategy, attention, and any biases. "
@@ -727,20 +735,20 @@ async def summarize_tweets(tweets: list, channel: discord.TextChannel, title: st
     )
     full_prompt = prompt_prefix + snippet
 
-    # Send an initial embed showing the raw snippet and a waiting indicator.
-    initial_embed = Embed(
-        title=title,
-        description=snippet + "\n\n⏳",
+    # Send a separate summary embed with a waiting indicator.
+    summary_embed = Embed(
+        title=f"{title} - Summary",
+        description="⏳",
         color=EMBED_COLOR["incomplete"]
     )
-    msg = await channel.send(embed=initial_embed)
+    summary_msg = await channel.send(embed=summary_embed)
 
-    accumulated = ""  # This will accumulate the streamed summary text.
+    accumulated = ""  # Holds the streamed summary text.
     edit_interval = 1 / 1.3  # ~0.77 seconds per edit.
     last_edit_time = asyncio.get_event_loop().time()
 
     try:
-        # IMPORTANT: await the chat completions streaming call!
+        # Await the streaming LLM response.
         stream = await llm_client.chat.completions.create(
             model=os.getenv("LLM") or "deepseek-r1-distill-llama-8b-abliterated",
             messages=[{"role": "user", "content": full_prompt}],
@@ -750,32 +758,70 @@ async def summarize_tweets(tweets: list, channel: discord.TextChannel, title: st
         )
         async for chunk in stream:
             new_piece = chunk.choices[0].delta.content or ""
-            accumulated += new_piece
+            # If appending the new piece would exceed the embed limit for the summary,
+            # perform a rollover: send the current accumulation as final, then start a new summary embed.
+            if len(accumulated + new_piece) > EMBED_MAX_LENGTH:
+                final_text = "Summary so far:\n" + accumulated
+                # Ensure final_text is within the limit.
+                final_text = final_text[:EMBED_MAX_LENGTH]
+                await summary_msg.edit(embed=Embed(
+                    title=f"{title} - Summary (Part)",
+                    description=final_text,
+                    color=EMBED_COLOR["complete"]
+                ))
+                # Roll over: send a new summary embed and reset the accumulated text.
+                summary_msg = await channel.send(embed=Embed(
+                    title=f"{title} - Summary (Continued)",
+                    description="⏳",
+                    color=EMBED_COLOR["incomplete"]
+                ))
+                accumulated = new_piece
+                last_edit_time = asyncio.get_event_loop().time()
+            else:
+                accumulated += new_piece
+
             now = asyncio.get_event_loop().time()
             if now - last_edit_time >= edit_interval:
-                updated_embed = Embed(
-                    title=title,
-                    description=snippet + "\n\nSummary so far:\n" + accumulated,
+                updated_text = "Summary so far:\n" + accumulated
+                # If the update text exceeds the limit, trim it.
+                if len(updated_text) > EMBED_MAX_LENGTH:
+                    updated_text = updated_text[:EMBED_MAX_LENGTH]
+                await summary_msg.edit(embed=Embed(
+                    title=f"{title} - Summary",
+                    description=updated_text,
                     color=EMBED_COLOR["complete"]
-                )
-                await msg.edit(embed=updated_embed)
+                ))
                 last_edit_time = now
 
         # Final update when streaming completes.
-        final_embed = Embed(
-            title=title,
-            description=snippet + "\n\nSummary:\n" + accumulated,
+        final_text = "Summary:\n" + accumulated
+        if len(final_text) > EMBED_MAX_LENGTH:
+            final_text = final_text[:EMBED_MAX_LENGTH]
+        await summary_msg.edit(embed=Embed(
+            title=f"{title} - Summary",
+            description=final_text,
             color=EMBED_COLOR["complete"]
-        )
-        await msg.edit(embed=final_embed)
+        ))
     except Exception as e:
         logging.error(f"Error streaming tweet summary: {e}")
-        error_embed = Embed(
-            title=title,
-            description=snippet + "\n\nAn error occurred during summarization.",
-            color=discord.Color.red()
-        )
-        await msg.edit(embed=error_embed)
+        if accumulated:
+            partial_text = "Partial Summary (due to error):\n" + accumulated
+            if len(partial_text) > EMBED_MAX_LENGTH:
+                partial_text = partial_text[:EMBED_MAX_LENGTH]
+            await summary_msg.edit(embed=Embed(
+                title=f"{title} - Summary",
+                description=partial_text,
+                color=EMBED_COLOR["complete"]
+            ))
+        else:
+            await summary_msg.edit(embed=Embed(
+                title=f"{title} - Summary",
+                description="An error occurred during summarization.",
+                color=discord.Color.red()
+            ))
+
+
+
 
 
 
