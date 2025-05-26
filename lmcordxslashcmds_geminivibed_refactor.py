@@ -175,9 +175,9 @@ async def _send_audio_segment(destination: discord.abc.Messageable, segment_text
             elif filename_suffix == "main_response" or filename_suffix == "full": 
                 content_message = "**Sam's response:**"
 
-            if isinstance(destination, discord.InteractionMessage):
-                await destination.channel.send(content=content_message, file=file)
-            elif hasattr(destination, 'send'): 
+            if isinstance(destination, discord.InteractionMessage): # For followups from interaction.edit_original_response
+                 await destination.channel.send(content=content_message, file=file) # Send to the channel of the interaction message
+            elif hasattr(destination, 'send'): # For discord.TextChannel or interaction.followup
                 await destination.send(content=content_message, file=file)
             else:
                 logger.warning(f"Cannot send TTS to destination of type {type(destination)}")
@@ -220,25 +220,31 @@ async def stream_llm_response_to_interaction(
     is_edit_of_original_response: bool = False 
 ):
     """Streams LLM response to a Discord interaction (slash command)."""
-    message_to_edit = None
+    message_to_edit = None 
+    original_interaction_message_id = None 
+
     if not interaction.response.is_done():
         try:
             await interaction.response.defer(ephemeral=False) 
-            message_to_edit = await interaction.original_response() 
+            message_to_edit = await interaction.original_response()
+            original_interaction_message_id = message_to_edit.id
         except discord.errors.InteractionResponded: 
             logger.warning("Interaction already responded before explicit defer, trying to get original response.")
             try:
                 message_to_edit = await interaction.original_response()
+                original_interaction_message_id = message_to_edit.id
             except discord.NotFound:
                  logger.error("Could not get original response after InteractionResponded error.")
                  response_embed_fallback = discord.Embed(title=title, description="⏳ Thinking...", color=config.EMBED_COLOR["incomplete"])
                  message_to_edit = await interaction.followup.send(embed=response_embed_fallback, wait=True)
+                 original_interaction_message_id = message_to_edit.id
+
 
     if not message_to_edit: 
         logger.warning("No message to edit after defer attempts, sending new followup for streaming.")
         response_embed_init = discord.Embed(title=title, description="⏳ Thinking...", color=config.EMBED_COLOR["incomplete"])
         message_to_edit = await interaction.followup.send(embed=response_embed_init, wait=True)
-
+        original_interaction_message_id = message_to_edit.id
 
     response_embed = discord.Embed(title=title, description="⏳ Thinking...", color=config.EMBED_COLOR["incomplete"])
     await message_to_edit.edit(embed=response_embed)
@@ -247,6 +253,7 @@ async def stream_llm_response_to_interaction(
     full_response_content = ""
     accumulated_chunk = ""
     last_edit_time = asyncio.get_event_loop().time()
+    embed_count = 0 
 
     try:
         logger.info(f"Streaming LLM for interaction (last user message): {prompt_messages[-1].content[:100] if prompt_messages else 'N/A'}")
@@ -271,30 +278,48 @@ async def stream_llm_response_to_interaction(
             accumulated_chunk += delta_content
 
             current_time = asyncio.get_event_loop().time()
-            if accumulated_chunk and (current_time - last_edit_time >= (1.0 / config.EDITS_PER_SECOND) or len(accumulated_chunk) > 150):
-                temp_description = (response_embed.description if response_embed.description != "⏳ Thinking..." else "") + accumulated_chunk
-                
-                if len(temp_description) <= config.EMBED_MAX_LENGTH:
-                    response_embed.description = temp_description
-                    try:
-                        await message_to_edit.edit(embed=response_embed)
-                        last_edit_time = current_time
-                        accumulated_chunk = ""
-                    except discord.errors.NotFound:
-                        logger.warning("Failed to edit message during stream, it might have been deleted.")
-                        return
-                    except discord.errors.HTTPException as e:
-                        logger.error(f"HTTPException during stream edit: {e}. Len: {len(response_embed.description)}")
-                        await asyncio.sleep(0.5)
-                else:
-                    logger.warning(f"Stream content breaking embed limit. Full length: {len(full_response_content)}")
-                    response_embed.description = temp_description[:config.EMBED_MAX_LENGTH - 10] + "... (more)" 
+            current_embed_text = response_embed.description if response_embed.description != "⏳ Thinking..." else ""
+            
+            if len(current_embed_text + accumulated_chunk) > config.EMBED_MAX_LENGTH:
+                chars_that_fit_in_current_chunk = config.EMBED_MAX_LENGTH - len(current_embed_text)
+                chars_that_fit_in_current_chunk = max(0, chars_that_fit_in_current_chunk)
+
+                part_to_add_now = accumulated_chunk[:chars_that_fit_in_current_chunk]
+                overflow_chunk = accumulated_chunk[chars_that_fit_in_current_chunk:]
+
+                response_embed.description = (current_embed_text + part_to_add_now).strip()
+                response_embed.color = config.EMBED_COLOR["complete"] 
+                try:
                     await message_to_edit.edit(embed=response_embed)
-                    full_response_content = response_embed.description 
-                    break 
+                except discord.errors.NotFound:
+                    logger.warning("Failed to edit message (overflow handling), it might have been deleted.")
+                    return 
+                
+                embed_count += 1
+                new_title = f"{title} (cont. {embed_count})"
+                response_embed = discord.Embed(title=new_title, description="⏳ Thinking...", color=config.EMBED_COLOR["incomplete"])
+                message_to_edit = await interaction.followup.send(embed=response_embed, wait=True) 
+                if original_interaction_message_id is None: 
+                    original_interaction_message_id = message_to_edit.id
+
+                accumulated_chunk = overflow_chunk 
+                last_edit_time = current_time 
+
+            elif accumulated_chunk and (current_time - last_edit_time >= (1.0 / config.EDITS_PER_SECOND) or len(accumulated_chunk) > 150):
+                response_embed.description = (current_embed_text + accumulated_chunk).strip()
+                try:
+                    await message_to_edit.edit(embed=response_embed)
+                    last_edit_time = current_time
+                    accumulated_chunk = "" 
+                except discord.errors.NotFound:
+                    logger.warning("Failed to edit message during stream, it might have been deleted.")
+                    return
+                except discord.errors.HTTPException as e:
+                    logger.error(f"HTTPException during stream edit: {e}. Len: {len(response_embed.description)}")
+                    await asyncio.sleep(0.5)
         
         final_description = (response_embed.description if response_embed.description != "⏳ Thinking..." else "") + accumulated_chunk
-        response_embed.description = final_description[:config.EMBED_MAX_LENGTH] 
+        response_embed.description = final_description[:config.EMBED_MAX_LENGTH].strip() 
         response_embed.color = config.EMBED_COLOR["complete"]
         if not response_embed.description or response_embed.description == "⏳ Thinking...":
             response_embed.description = "No response or error."
@@ -307,7 +332,8 @@ async def stream_llm_response_to_interaction(
         message_history[channel_id].append(MsgNode(role="assistant", content=full_response_content, name=str(bot.user.id)))
         message_history[channel_id] = message_history[channel_id][-config.MAX_MESSAGE_HISTORY:]
 
-        await send_tts_audio(interaction.channel, full_response_content, base_filename=f"interaction_{interaction.id}") 
+        tts_base_filename = f"interaction_{original_interaction_message_id or interaction.id}"
+        await send_tts_audio(interaction.channel, full_response_content, base_filename=tts_base_filename) 
 
     except Exception as e:
         logger.error(f"Error streaming LLM response to interaction: {e}", exc_info=True)
@@ -326,11 +352,12 @@ async def stream_llm_response_to_message(
 ):
     """Streams LLM response as a reply to a regular Discord message."""
     response_embed = discord.Embed(title=title, description="⏳ Thinking...", color=config.EMBED_COLOR["incomplete"])
-    reply_message = await target_message.reply(embed=response_embed, silent=True)
+    current_reply_message = await target_message.reply(embed=response_embed, silent=True) 
 
     full_response_content = ""
     accumulated_chunk = ""
     last_edit_time = asyncio.get_event_loop().time()
+    embed_count = 0
 
     try:
         logger.info(f"Streaming LLM for message (last user message): {prompt_messages[-1].content[:100] if prompt_messages else 'N/A'}")
@@ -346,7 +373,6 @@ async def stream_llm_response_to_message(
         )
         async for chunk_data in stream:
             delta_content = ""
-            # Add checks for chunk_data structure
             if chunk_data.choices and len(chunk_data.choices) > 0:
                 choice = chunk_data.choices[0]
                 if choice.delta:
@@ -356,36 +382,52 @@ async def stream_llm_response_to_message(
             accumulated_chunk += delta_content
 
             current_time = asyncio.get_event_loop().time()
-            if accumulated_chunk and (current_time - last_edit_time >= (1.0 / config.EDITS_PER_SECOND) or len(accumulated_chunk) > 150):
-                temp_description = (response_embed.description if response_embed.description != "⏳ Thinking..." else "") + accumulated_chunk
+            current_embed_text = response_embed.description if response_embed.description != "⏳ Thinking..." else ""
+
+            if len(current_embed_text + accumulated_chunk) > config.EMBED_MAX_LENGTH:
+                chars_that_fit = config.EMBED_MAX_LENGTH - len(current_embed_text)
+                chars_that_fit = max(0, chars_that_fit) 
                 
-                if len(temp_description) <= config.EMBED_MAX_LENGTH:
-                    response_embed.description = temp_description
-                    try:
-                        await reply_message.edit(embed=response_embed)
-                        last_edit_time = current_time
-                        accumulated_chunk = ""
-                    except discord.errors.NotFound:
-                        logger.warning("Failed to edit message during stream, it might have been deleted.")
-                        return
-                    except discord.errors.HTTPException as e:
-                        logger.error(f"HTTPException during stream edit: {e}. Len: {len(response_embed.description)}")
-                        await asyncio.sleep(0.5) 
-                else: 
-                    logger.warning(f"Stream content breaking embed limit. Full length: {len(full_response_content)}")
-                    response_embed.description = temp_description[:config.EMBED_MAX_LENGTH - 10] + "... (more)"
-                    await reply_message.edit(embed=response_embed)
-                    full_response_content = response_embed.description 
-                    break 
+                part_to_add_now = accumulated_chunk[:chars_that_fit]
+                overflow_chunk = accumulated_chunk[chars_that_fit:]
+
+                response_embed.description = (current_embed_text + part_to_add_now).strip()
+                response_embed.color = config.EMBED_COLOR["complete"]
+                try:
+                    await current_reply_message.edit(embed=response_embed)
+                except discord.errors.NotFound:
+                    logger.warning("Failed to edit message (overflow handling), it might have been deleted.")
+                    return 
+                
+                embed_count += 1
+                new_title = f"{title} (cont. {embed_count})"
+                response_embed = discord.Embed(title=new_title, description="⏳ Thinking...", color=config.EMBED_COLOR["incomplete"])
+                current_reply_message = await target_message.channel.send(embed=response_embed) 
+
+                accumulated_chunk = overflow_chunk
+                last_edit_time = current_time
+            
+            elif accumulated_chunk and (current_time - last_edit_time >= (1.0 / config.EDITS_PER_SECOND) or len(accumulated_chunk) > 150):
+                response_embed.description = (current_embed_text + accumulated_chunk).strip()
+                try:
+                    await current_reply_message.edit(embed=response_embed)
+                    last_edit_time = current_time
+                    accumulated_chunk = ""
+                except discord.errors.NotFound:
+                    logger.warning("Failed to edit message during stream, it might have been deleted.")
+                    return
+                except discord.errors.HTTPException as e:
+                    logger.error(f"HTTPException during stream edit: {e}. Len: {len(response_embed.description)}")
+                    await asyncio.sleep(0.5) 
         
         final_description = (response_embed.description if response_embed.description != "⏳ Thinking..." else "") + accumulated_chunk
-        response_embed.description = final_description[:config.EMBED_MAX_LENGTH]
+        response_embed.description = final_description[:config.EMBED_MAX_LENGTH].strip()
         response_embed.color = config.EMBED_COLOR["complete"]
         if not response_embed.description or response_embed.description == "⏳ Thinking...":
             response_embed.description = "No response or error."
             response_embed.color = config.EMBED_COLOR["error"]
         
-        await reply_message.edit(embed=response_embed)
+        await current_reply_message.edit(embed=response_embed)
         
         channel_id = target_message.channel.id
         if channel_id not in message_history: message_history[channel_id] = []
@@ -399,9 +441,9 @@ async def stream_llm_response_to_message(
         response_embed.description = f"An error occurred: {str(e)[:1000]}"
         response_embed.color = config.EMBED_COLOR["error"]
         try:
-            await reply_message.edit(embed=response_embed)
+            await current_reply_message.edit(embed=response_embed) 
         except discord.errors.NotFound: pass
-    return reply_message
+    return current_reply_message 
 
 # -------------------------------------------------------------------
 # Text-to-Speech (TTS)
@@ -1092,12 +1134,11 @@ async def gettweets_slash_command(interaction: discord.Interaction, username: st
             MsgNode(role="user", content=f"Summarize the key themes, topics, and overall sentiment from the following recent tweets by @{username.lstrip('@')}:\n\n{raw_tweets_display[:3500]}")
         ]
         
-        # TTS for the summary will be handled by stream_llm_response_to_interaction
         await stream_llm_response_to_interaction(
             interaction, 
             prompt_nodes_summary, 
             title=f"Tweet Summary for @{username.lstrip('@')}",
-            is_edit_of_original_response=True # Edits the original deferred message
+            is_edit_of_original_response=True 
         )
 
     except Exception as e_cmd:
