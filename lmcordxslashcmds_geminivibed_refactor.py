@@ -175,9 +175,9 @@ async def _send_audio_segment(destination: discord.abc.Messageable, segment_text
             elif filename_suffix == "main_response" or filename_suffix == "full": 
                 content_message = "**Sam's response:**"
 
-            if isinstance(destination, discord.InteractionMessage): # For followups from interaction.edit_original_response
-                 await destination.channel.send(content=content_message, file=file) # Send to the channel of the interaction message
-            elif hasattr(destination, 'send'): # For discord.TextChannel or interaction.followup
+            if isinstance(destination, discord.InteractionMessage):
+                 await destination.channel.send(content=content_message, file=file) 
+            elif hasattr(destination, 'send'): 
                 await destination.send(content=content_message, file=file)
             else:
                 logger.warning(f"Cannot send TTS to destination of type {type(destination)}")
@@ -911,14 +911,20 @@ async def check_reminders():
     now = datetime.now()
     due_reminders_indices = []
     
+    # logger.debug(f"Checking reminders... {len(reminders)} pending.") # Optional: verbose logging
     for i, reminder_tuple in enumerate(reminders): 
         reminder_time, channel_id, user_id, message_content, original_time_str = reminder_tuple
+        # logger.debug(f"Checking reminder: Time {reminder_time}, Now {now}") # Optional
         if now >= reminder_time:
+            logger.info(f"Reminder DUE for user {user_id} in channel {channel_id}: {message_content}")
             try:
-                channel = bot.get_channel(channel_id)
+                channel = await bot.fetch_channel(channel_id) # Use fetch_channel
                 user = await bot.fetch_user(user_id) 
+                
+                channel_name_for_log = "DM" if isinstance(channel, discord.DMChannel) else getattr(channel, 'name', f"ID:{channel_id}")
+
                 if channel and user:
-                    logger.info(f"Sending reminder to {user.name} in {channel.name}: {message_content}")
+                    logger.info(f"Sending reminder to {user.name} in {channel_name_for_log}: {message_content}")
                     embed = discord.Embed(
                         title=f"⏰ Reminder! (Set {original_time_str})", 
                         description=message_content,
@@ -927,15 +933,23 @@ async def check_reminders():
                     )
                     embed.set_footer(text=f"Reminder for {user.display_name}")
                     await channel.send(content=user.mention, embed=embed)
-                    await send_tts_audio(channel, f"Reminder for {user.display_name}: {message_content}")
+                    await send_tts_audio(channel, f"Reminder for {user.display_name}: {message_content}", base_filename=f"reminder_{user_id}_{channel_id}")
                 else:
-                    logger.warning(f"Could not find channel or user for reminder: ChID {channel_id}, UserID {user_id}")
+                    if not channel: logger.warning(f"Could not fetch channel for reminder: ChID {channel_id}")
+                    if not user: logger.warning(f"Could not fetch user for reminder: UserID {user_id}")
                 due_reminders_indices.append(i)
+            except discord.errors.NotFound:
+                 logger.warning(f"Channel or User not found for reminder: ChID {channel_id}, UserID {user_id}. Removing reminder.")
+                 due_reminders_indices.append(i) # Also mark for removal if not found
             except Exception as e:
-                logger.error(f"Failed to send reminder: {e}", exc_info=True)
+                logger.error(f"Failed to send reminder (ChID {channel_id}, UserID {user_id}): {e}", exc_info=True)
+                # Decide if you want to keep the reminder for a retry or remove it. For now, removing.
+                due_reminders_indices.append(i) 
     
-    for index in sorted(due_reminders_indices, reverse=True):
-        reminders.pop(index)
+    if due_reminders_indices:
+        logger.info(f"Removing {len(due_reminders_indices)} due reminders.")
+        for index in sorted(due_reminders_indices, reverse=True):
+            reminders.pop(index)
 
 
 def parse_time_string_to_delta(time_str: str) -> tuple[timedelta | None, str | None]:
