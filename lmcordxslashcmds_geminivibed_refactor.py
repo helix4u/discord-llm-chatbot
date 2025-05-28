@@ -541,24 +541,24 @@ async def tts_request(text: str, speed: float = 1.3) -> bytes | None:
 # Web Scraping and Search
 # -------------------------------------------------------------------
 # JavaScript for expanding "Show more" buttons safely
-# Adapted from user's provided x-scrape.py
+# Adapted and improved to match the logic of x-scrape.py
 JS_EXPAND_SHOWMORE_TWITTER = """
 (maxClicks) => {
     let clicks = 0;
+
     function isVisible(el) {
         if (!el) return false;
         return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
     }
+
     function isSafeToClick(showMoreEl) {
-        let parentAnchor = showMoreEl.closest('a');
-        if (parentAnchor && parentAnchor.href && parentAnchor.href.includes('/status/')) {
-            // Simplified: if it's a link to a status, assume it's for an embedded tweet and might navigate.
-            // A more complex check would compare parent article's main link.
-            // For now, this is a basic heuristic.
-            // console.log("Found 'Show more' within a status link, might be embedded:", showMoreEl.textContent);
-        }
+        // A "Show more" inside an embedded card (e.g., a link preview) is unsafe.
         if (showMoreEl.closest('[data-testid="card.wrapper"]')) {
-             return false; 
+            return false;
+        }
+        // A "Show more" inside a quoted/retweeted tweet component is unsafe.
+        if (showMoreEl.closest('[role="blockquote"]')) {
+            return false;
         }
         return true;
     }
@@ -566,11 +566,17 @@ JS_EXPAND_SHOWMORE_TWITTER = """
     const articles = document.querySelectorAll('article[data-testid="tweet"]');
     for (const article of articles) {
         if (clicks >= maxClicks) break;
+        
+        // Find potential candidates using the efficient selector.
         const candidates = Array.from(article.querySelectorAll('span, div[role="button"]'));
+        
         for (const el of candidates) {
             if (clicks >= maxClicks) break;
+            
+            // Use comprehensive text matching.
             const text = (el.textContent || '').toLowerCase().trim();
             if ((text === 'show more' || text === 'view more replies' || text === 'show additional replies' || text.includes('more repl') || text === 'show') && isVisible(el)) {
+                
                 if (isSafeToClick(el)) {
                     try {
                         el.click();
@@ -1168,7 +1174,7 @@ async def pol_slash_command(interaction: discord.Interaction, statement: str):
 
 @bot.tree.command(name="gettweets", description="Fetches and summarizes recent tweets from a user.")
 @app_commands.describe(username="The X/Twitter username (without @).", limit="Number of tweets to fetch (max 15).")
-async def gettweets_slash_command(interaction: discord.Interaction, username: str, limit: app_commands.Range[int, 1, 15] = 5):
+async def gettweets_slash_command(interaction: discord.Interaction, username: str, limit: app_commands.Range[int, 1, 150] = 50):
     logger.info(f"Gettweets command invoked by {interaction.user.name} for @{username}.")
     try:
         await interaction.response.defer(thinking=True, ephemeral=False)
