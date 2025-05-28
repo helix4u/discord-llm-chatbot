@@ -360,25 +360,17 @@ async def stream_llm_response_to_interaction(
     initial_embed = discord.Embed(title=title, description="⏳ Generating context...", color=config.EMBED_COLOR["incomplete"])
     await message_to_edit.edit(embed=initial_embed)
 
-
     full_response_content = ""
     accumulated_chunk = ""
     last_edit_time = asyncio.get_event_loop().time()
     embed_count = 0 
 
     try:
-        # Check if the request includes images
         is_vision_request = any(isinstance(p.content, list) and any(c.get("type") == "image_url" for c in p.content) for p in prompt_messages)
-        
-        # Use the new two-step process
         stream, generated_context = await get_context_aware_llm_stream(prompt_messages, is_vision_request)
 
-        # Update embed with the generated context before streaming the main response
-        response_embed = discord.Embed(
-            title=title,
-            color=config.EMBED_COLOR["incomplete"]
-        )
-        context_display = f"**Model-Generated Suggested Context:**\n> {generated_context.replace(chr(10), ' ')}\n\n---\n**Response:**\n⏳ Thinking..."
+        response_embed = discord.Embed(title=title, color=config.EMBED_COLOR["incomplete"])
+        context_display = f"**Model-Generated Suggested Context:**\n> {generated_context.replace(chr(10), ' ')}\n\n---\n**Response:**\n"
         response_embed.description = context_display
         await message_to_edit.edit(embed=response_embed)
 
@@ -393,30 +385,34 @@ async def stream_llm_response_to_interaction(
             accumulated_chunk += delta_content
 
             current_time = asyncio.get_event_loop().time()
-            # The base description now includes the context
-            base_description = f"**Model-Generated Suggested Context:**\n> {generated_context.replace(chr(10), ' ')}\n\n---\n**Response:**\n"
-            current_response_text = full_response_content.replace("⏳ Thinking...", "")
-
-            if len(base_description + current_response_text) > config.EMBED_MAX_LENGTH:
-                # This part of the logic becomes more complex with a prepended header.
-                # For simplicity, we'll let the existing chunking handle overflow, which may be imperfect.
-                logger.warning("Response exceeds embed length with context, overflow handling may be imperfect.")
             
+            # **CORRECTED LOGIC** to respect EDITS_PER_SECOND
             if accumulated_chunk and (current_time - last_edit_time >= (1.0 / config.EDITS_PER_SECOND) or len(accumulated_chunk) > 150):
-                response_embed.description = (base_description + current_response_text).strip()
                 try:
+                    # Append only the new chunk to the description
+                    response_embed.description += accumulated_chunk
+                    
+                    # Truncate if it exceeds the max length
+                    if len(response_embed.description) > config.EMBED_MAX_LENGTH:
+                        # This simple truncate might be imperfect for multi-embed, but works for single
+                        response_embed.description = response_embed.description[:config.EMBED_MAX_LENGTH]
+                    
                     await message_to_edit.edit(embed=response_embed)
                     last_edit_time = current_time
-                    # Note: accumulated_chunk is part of full_response_content, so we don't reset it
+                    accumulated_chunk = "" # Reset accumulator after successful edit
+
                 except discord.errors.NotFound:
                     logger.warning("Failed to edit message during stream, it might have been deleted.")
                     return
                 except discord.errors.HTTPException as e:
                     logger.error(f"HTTPException during stream edit: {e}. Len: {len(response_embed.description)}")
                     await asyncio.sleep(0.5)
-        
-        final_description = (base_description + full_response_content).strip()
-        response_embed.description = final_description[:config.EMBED_MAX_LENGTH] 
+
+        # Append any remaining part of the chunk
+        if accumulated_chunk:
+             response_embed.description += accumulated_chunk
+
+        response_embed.description = response_embed.description[:config.EMBED_MAX_LENGTH].strip()
         response_embed.color = config.EMBED_COLOR["complete"]
         if not full_response_content.strip():
             response_embed.description += "\nNo response or error."
@@ -434,10 +430,9 @@ async def stream_llm_response_to_interaction(
 
     except Exception as e:
         logger.error(f"Error streaming LLM response to interaction: {e}", exc_info=True)
-        response_embed.description = f"An error occurred: {str(e)[:1000]}"
-        response_embed.color = config.EMBED_COLOR["error"]
+        error_embed = discord.Embed(title=title, description=f"An error occurred: {str(e)[:1000]}", color=config.EMBED_COLOR["error"])
         try:
-            await message_to_edit.edit(embed=response_embed)
+            await message_to_edit.edit(embed=error_embed)
         except discord.errors.NotFound: pass
     return message_to_edit
 
@@ -457,18 +452,11 @@ async def stream_llm_response_to_message(
     embed_count = 0
 
     try:
-        # Check if the request includes images
         is_vision_request = any(isinstance(p.content, list) and any(c.get("type") == "image_url" for c in p.content) for p in prompt_messages)
-        
-        # Use the new two-step process
         stream, generated_context = await get_context_aware_llm_stream(prompt_messages, is_vision_request)
 
-        # Update embed with the generated context before streaming the main response
-        response_embed = discord.Embed(
-            title=title,
-            color=config.EMBED_COLOR["incomplete"]
-        )
-        context_display = f"**Model-Generated Suggested Context:**\n> {generated_context.replace(chr(10), ' ')}\n\n---\n**Response:**\n⏳ Thinking..."
+        response_embed = discord.Embed(title=title, color=config.EMBED_COLOR["incomplete"])
+        context_display = f"**Model-Generated Suggested Context:**\n> {generated_context.replace(chr(10), ' ')}\n\n---\n**Response:**\n"
         response_embed.description = context_display
         await current_reply_message.edit(embed=response_embed)
 
@@ -483,17 +471,21 @@ async def stream_llm_response_to_message(
             accumulated_chunk += delta_content
 
             current_time = asyncio.get_event_loop().time()
-            base_description = f"**Model-Generated Suggested Context:**\n> {generated_context.replace(chr(10), ' ')}\n\n---\n**Response:**\n"
-            current_response_text = full_response_content.replace("⏳ Thinking...", "")
-
-            if len(base_description + current_response_text) > config.EMBED_MAX_LENGTH:
-                 logger.warning("Response exceeds embed length with context, overflow handling may be imperfect.")
             
+            # **CORRECTED LOGIC** to respect EDITS_PER_SECOND
             if accumulated_chunk and (current_time - last_edit_time >= (1.0 / config.EDITS_PER_SECOND) or len(accumulated_chunk) > 150):
-                response_embed.description = (base_description + current_response_text).strip()
                 try:
+                    # Append only the new chunk to the description
+                    response_embed.description += accumulated_chunk
+
+                    # Truncate if it exceeds the max length
+                    if len(response_embed.description) > config.EMBED_MAX_LENGTH:
+                        response_embed.description = response_embed.description[:config.EMBED_MAX_LENGTH]
+
                     await current_reply_message.edit(embed=response_embed)
                     last_edit_time = current_time
+                    accumulated_chunk = "" # Reset accumulator after successful edit
+                    
                 except discord.errors.NotFound:
                     logger.warning("Failed to edit message during stream, it might have been deleted.")
                     return
@@ -501,8 +493,11 @@ async def stream_llm_response_to_message(
                     logger.error(f"HTTPException during stream edit: {e}. Len: {len(response_embed.description)}")
                     await asyncio.sleep(0.5) 
         
-        final_description = (base_description + full_response_content).strip()
-        response_embed.description = final_description[:config.EMBED_MAX_LENGTH]
+        # Append any remaining part of the chunk
+        if accumulated_chunk:
+            response_embed.description += accumulated_chunk
+            
+        response_embed.description = response_embed.description[:config.EMBED_MAX_LENGTH].strip()
         response_embed.color = config.EMBED_COLOR["complete"]
         if not full_response_content.strip():
             response_embed.description += "\nNo response or error."
@@ -519,10 +514,9 @@ async def stream_llm_response_to_message(
 
     except Exception as e:
         logger.error(f"Error streaming LLM response to message: {e}", exc_info=True)
-        response_embed.description = f"An error occurred: {str(e)[:1000]}"
-        response_embed.color = config.EMBED_COLOR["error"]
+        error_embed = discord.Embed(title=title, description=f"An error occurred: {str(e)[:1000]}", color=config.EMBED_COLOR["error"])
         try:
-            await current_reply_message.edit(embed=response_embed) 
+            await current_reply_message.edit(embed=error_embed) 
         except discord.errors.NotFound: pass
     return current_reply_message 
 
