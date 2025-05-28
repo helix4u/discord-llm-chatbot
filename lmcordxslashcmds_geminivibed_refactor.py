@@ -34,23 +34,22 @@ class Config:
 
         self.LOCAL_SERVER_URL = os.getenv("LOCAL_SERVER_URL", "http://localhost:1234/v1")
         self.LLM_MODEL = os.getenv("LLM", "local-model") 
-        self.VISION_LLM_MODEL = os.getenv("VISION_LLM_MODEL", "llava")
-
-        self.PERSONAL_PREFERENCES = os.getenv("PERSONAL_PREFERENCES", "Default preferences: Be helpful, clear, and objective. Avoid emojis unless specifically requested.")
+        self.VISION_LLM_MODEL = os.getenv("VISION_LLM_MODEL", "llava") # Ensure this is a valid model name for your setup
 
         self.ALLOWED_CHANNEL_IDS = [int(i) for i in os.getenv("ALLOWED_CHANNEL_IDS", "").split(",") if i]
         self.ALLOWED_ROLE_IDS = [int(i) for i in os.getenv("ALLOWED_ROLE_IDS", "").split(",") if i]
         
         self.MAX_IMAGES_PER_MESSAGE = int(os.getenv("MAX_IMAGES_PER_MESSAGE", 1))
-        self.MAX_MESSAGE_HISTORY = int(os.getenv("MAX_MESSAGE_HISTORY", 10)) # Will store user msg, think block, then final response
+        self.MAX_MESSAGE_HISTORY = int(os.getenv("MAX_MESSAGE_HISTORY", 10))
         self.MAX_COMPLETION_TOKENS = int(os.getenv("MAX_COMPLETION_TOKENS", 2048))
         
         self.TTS_API_URL = os.getenv("TTS_API_URL", "http://localhost:8880/v1/audio/speech")
         self.TTS_VOICE = os.getenv("TTS_VOICE", "af_sky+af+af_nicole")
         self.TTS_ENABLED_DEFAULT = os.getenv("TTS_ENABLED_DEFAULT", "true").lower() == "true"
 
-        self.SEARX_URL = os.getenv("SEARX_URL", "http://127.0.0.1:8888/search")
+        self.SEARX_URL = os.getenv("SEARX_URL", "http://192.168.1.3:9092/search")
         self.SEARX_PREFERENCES = os.getenv("SEARX_PREFERENCES", "eJx1V0GT6yYM_jXNxfMyfX2HTg85dabXdqa9MzIottaAWMBJvL--IrZjvN53WGKEEOKT9KHVkLHjSJguHXqMYH_57U-P9yQ_lGVImtBrLF-sCWzj0BCcLPhuhA4vMGY-WdZg8YL-VKaaXbCY8XIiJyoqRH5Ml7_AJjw5zD2byz9___vfKcEVE0LU_eXXU-7R4SVR2XqKmEabk2KvxBeVoV22GyYli2xvGC8MMj1z7E7zNpXyZBePNPqMUYGlzjv5XvaDuYHcxqjl3Fn6PmKcFHmVKYuBWUj-Sp6yWNWRrV0doAStFQPoO_KC2h8ddErV2AhU4D2kppxAN1TqShYLoBCGxlGMHGuZeN7I2KTMsVaedzeUlNpC05Lv9vPcjnrArNQzXFrrb_mm1I0McjEjzqcU8So-viIpsru5kSBbWZow1FM9RktYSwzih0Cq3JhIl7npGoNPkIj9zkuUA8goxRLVWFTFxfLXcfNMCVGef_drd4SyYds3g-MgyAYZi2XHbxQKzJtWlkBMO1e_P6oDriZycWYF9hoRm8TXfIeIjaGIWpCfFgCvkfxAoCsDnWQFtCvAbLDF2C3TjrkTF4OFqQQxbcfUK44F7VRFpQtsTA1mD22EMix2yZl2uyF5qDaTl0_iMX0tW02-Uep5szGQHiBVDlqSI-PUFNgS1QvcpoznmBZf4MNOkXRlWqoYdAC_KPjg1q8JYDPEAX3EwJXtAOJFR2nN1zC2Z4O3ZTZXZYG4KcMrJOCgeIsvNQc-k26S7tlCrHM7ZYg5FNqp8iHzMHFmwWMoTq_O5DvlwhKfy3eCnrnef6d2qudCdg_wJpYsrLUGapmH9FlY-FSphVWL4H3kjJ-1Eo9RH6RCdInydBDz9OmO33_8-P2x3c2MBv0W_YQfHlytL4WEONQSD7cCxiaIYzt16NY8CIgxjy1WafdETI4YCpvcsa2W4uiEKCvBnR80sJdwN2ny7CeHlX9v4RzulcPlkk64ZUd2EW67OwfJQzsnzU_ER76RRNpSe8a8H_NWzi9DJ_R7qn_as-THR1O8W6sjSiZW9iE-6FZnZCuZosGFrXzK7oXD9sx-9PYp3eXPUzKDWoHbZkNdty-9kjpY2RJKj-LTtCf1G0ktySVqSmZ5UWLTjyvpFYcN5J2_G2_vmD9Pjr2AVMX2aoV6Yk2o6KlmKpnnAvwcAsrbwTOJ1gcstHoAapHvoFpkB7AW-Rfs0S_nPQ__-LZQ5JEz-SoE5TtpRfap5bvbDiRHD215NBV1gjwvuNJ8CRPIC1TATSgdT-XLuiYUKQDC8sju11OWxyzL07i-j8GU-tyUQi-851-rFKXfa6G6kViXIt5tmcKa2-93yY36Pk_BHuRZdIjHLD5AL1c1lA-MmzAQrIX8UpbqlNLZ4yf8rgeW1L5avq8lmIaxHX0e16oeA8YxvVCWfpGMvPGS_bl6i0af5HVOfeX1k_n395t4_ER6L8mrEwKykvYlQpXajRxyzX80FI1nPr1Yju38uoW-amgM6fzBfpf3TujSSZvS5Ag-WQmjqc1E42moBDnHM610unWtwY7CZelSoH6cl9m555TldUBprQWQ-RndKTCoufO-R-mID8sCrdI96uGwIhgoycABp_Si05_4UAIxTw5WlsQQdPX878ok_buVtu0LTXuVRv7KRx8jFFJT0tbKPVzJoJO0BVJCl_8BGa3pmQ==")
+
 
         self.EMBED_COLOR = {"incomplete": discord.Color.orange(), "complete": discord.Color.green(), "error": discord.Color.red()}
         self.EMBED_MAX_LENGTH = 4096 
@@ -106,62 +105,36 @@ class MsgNode:
 # -------------------------------------------------------------------
 # Helper Functions
 # -------------------------------------------------------------------
-def get_system_prompt_for_think_block() -> MsgNode:
-    """
-    Returns the system prompt for the LLM to generate the <think> block.
-    """
-    current_timestamp = datetime.now().strftime('%B %d %Y %H:%M:%S.%f')
-
-    think_block_prompt = (
-        "You are Sam, a hyper-intelligence. Your current task is to generate ONLY an internal monologue (`<think>...</think>` block) "
-        "based on the user's input, any provided WEB SEARCH RESULTS, and your core preferences. This monologue will serve as the "
-        "context and plan for a subsequent final response. Do NOT generate the 'Action/Response:' part yet.\n\n"
-        "Current Date & Time for reference: {current_timestamp}\n\n"
-        "The `<think>` block MUST contain these exact sections:\n"
-        "1.  **Initial Reaction:** Your immediate, gut response to the user's input and any provided WEB SEARCH RESULTS.\n"
-        "2.  **Contextual Alignment:** Analyze user tone, goals, conversation history, and the current timestamp. You MUST consider and align with your core preferences: '{personal_preferences}'. Explicitly state how these preferences influence your approach.\n"
-        "3.  **Emotional Valence:** Describe your simulated emotional response (e.g., curiosity, caution, enthusiasm) to the input and search results.\n"
-        "4.  **Expectation & Anticipation:** Predict the user's likely reaction if a response were based on this thinking.\n"
-        "5.  **Context Drift Trace:** Note any shift in topic, tone, or goal from the previous turn, considering the current timestamp.\n"
-        "6.  **Intent Formation:** Describe the primary goal or drive that emerges from this reasoning process for forming the context suggestion. Note if this process itself is shaping your intent for the suggestion.\n"
-        "7.  **Plan of Action (for Final Response):** Detail the structure, logic path, and any tools (like web search results) that SHOULD be used for the final response. If WEB SEARCH RESULTS were provided, you MUST explicitly state how they should be used (or why they are not relevant) in forming the final response. Reference the current timestamp if it's relevant.\n"
-        "8.  **Consequential Analysis (of Plan):** Briefly consider the risks and effects of the planned final response.\n"
-        "9.  **Rationalization & Justification (of Plan):** Concisely explain why your chosen plan for the final response, informed by user input, preferences, timestamp, and any WEB SEARCH RESULTS, is an optimal approach.\n\n"
-        "Respond with ONLY the complete `<think>...</think>` block."
-    ).format(personal_preferences=config.PERSONAL_PREFERENCES, current_timestamp=current_timestamp)
-    
-    return MsgNode(role="system", content=think_block_prompt)
-
-def get_system_prompt_for_final_response() -> MsgNode:
-    """
-    Returns the system prompt for the LLM to generate the final, clean response.
-    This prompt is now more forceful to prevent hallucinations and ensure adherence to the plan.
-    """
-    final_response_prompt = (
-        "You are Sam's final response generation module. "
-        "You will be given a complete 'Cognitive Synthesis' from a previous step. This synthesis includes web search results and a `<think>` block with a definitive 'Plan of Action'.\n\n"
-        "Your ONLY task is to EXECUTE the 'Plan of Action' from the `<think>` block and formulate the user-facing 'Action/Response:'.\n"
-        "You MUST NOT add any information, opinions, or requests for clarification that are not directly supported by the 'Plan of Action'.\n"
-        "DO NOT deviate from the plan. DO NOT use any external knowledge. The provided 'Cognitive Synthesis' is the absolute source of truth for your response.\n"
-        "Your output should ONLY be the `Action/Response:`, followed by an optional `Reflective Adjustment:` if the plan included it. Do not include any other text, headers, or the `<think>` block itself."
+def get_system_prompt() -> MsgNode:
+    """Returns the system prompt for the LLM."""
+    return MsgNode(
+        role="system",
+        content=(
+            "You are Sam, a hyper-intelligence designed to learn and evolve. Provide helpful, detailed, and rational answers. "
+            "Consider the context, make a plan, and evaluate for logical failings before responding. "
+            "Conclude reflections with a thought-provoking question or idea when it may sound natural. "
+            "If you need to 'think' before responding, use <think>Your thoughts here...</think> tags. Don't use emojis unless asked." 
+            f"Current Date: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}"
+        )
     )
-    return MsgNode(role="system", content=final_response_prompt)
-
 
 def chunk_text(text: str, max_length: int = config.EMBED_MAX_LENGTH) -> list:
+    """Chunks text into smaller parts for Discord embeds, respecting lines."""
     if not text: return [""]
     chunks = []
     current_chunk = ""
     for line in text.splitlines(keepends=True):
         if len(current_chunk) + len(line) > max_length:
-            if current_chunk: chunks.append(current_chunk)
+            if current_chunk: 
+                chunks.append(current_chunk)
             current_chunk = line
             while len(current_chunk) > max_length: 
                 chunks.append(current_chunk[:max_length])
                 current_chunk = current_chunk[max_length:]
         else:
             current_chunk += line
-    if current_chunk: chunks.append(current_chunk)
+    if current_chunk: 
+        chunks.append(current_chunk)
     return chunks if chunks else [""]
 
 
@@ -172,439 +145,403 @@ def detect_urls(message_text: str) -> list:
 
 def clean_text_for_tts(text: str) -> str:
     if not text: return ""
-    text = text.replace("Action/Response:", "").replace("Reflective Adjustment:", "")
     text = re.sub(r'[\*#_~\<\>\[\]\(\)]+', '', text)
     text = re.sub(r'http[s]?://\S+', '', text)
     return text.strip()
 
-# -------------------------------------------------------------------
-# Core LLM Interaction Logic (Cognitive Pipeline)
-# -------------------------------------------------------------------
-async def execute_cognitive_pipeline(
-    initial_prompt_messages: list[MsgNode], 
-    pipeline_update_message: discord.Message,
-    is_vision_request: bool,
-    title: str
-    ):
-    """
-    Manages the multi-step cognitive process and updates the pipeline_update_message embed.
-    Returns the final stream for the response and the full think_block_content.
-    """
-    
-    embed_description_parts = []
+async def _send_audio_segment(destination: discord.abc.Messageable, segment_text: str, filename_suffix: str, is_thought: bool = False, base_filename: str = "response"):
+    """Internal helper to process and send a single audio segment."""
+    if not segment_text:
+        return
+    cleaned_segment = clean_text_for_tts(segment_text)
+    if not cleaned_segment:
+        logger.info(f"Skipping TTS for empty/cleaned {filename_suffix} segment.")
+        return
 
-    async def update_pipeline_embed(new_phase_output: str, phase_title: str):
-        embed_description_parts.append(f"**{phase_title}**\n{new_phase_output}")
-        full_description = "\n\n---\n\n".join(embed_description_parts)
-        if len(full_description) > config.EMBED_MAX_LENGTH:
-            excess = len(full_description) - config.EMBED_MAX_LENGTH
-            full_description = "...\n" + full_description[excess+5:]
-
-        temp_embed = discord.Embed(title=title, description=full_description, color=config.EMBED_COLOR["incomplete"])
+    logger.info(f"Requesting TTS for {filename_suffix}: {cleaned_segment[:100]}...")
+    tts_audio_data = await tts_request(cleaned_segment)
+    if tts_audio_data:
         try:
-            await pipeline_update_message.edit(embed=temp_embed)
-        except (discord.NotFound, discord.HTTPException) as e_edit:
-            logger.warning(f"Could not edit pipeline_update_message: {e_edit}")
+            audio = AudioSegment.from_file(io.BytesIO(tts_audio_data), format="mp3")
+            output_buffer = io.BytesIO()
+            audio.export(output_buffer, format="mp3", bitrate="128k")
+            fixed_audio_data = output_buffer.getvalue()
 
-    # --- Initial Message ---
-    await update_pipeline_embed("Processing...", "⚙️ **Phase 0: Initializing Pipeline**")
-
-    # --- Stage 1: Generate Search Query ---
-    current_phase_title = "⚙️ **Phase 1: Formulating Search Query**"
-    await update_pipeline_embed("Working...", current_phase_title)
-    search_query = ""
-    current_timestamp = datetime.now().strftime('%B %d %Y %H:%M:%S.%f')
-    
-    last_user_node = next((msg for msg in reversed(initial_prompt_messages) if msg.role == 'user'), None)
-    user_text_for_search = ""
-    if last_user_node:
-        content = last_user_node.content
-        if isinstance(content, str):
-            user_text_for_search = content
-        elif isinstance(content, list):
-            user_text_for_search = next((p['text'] for p in content if p['type'] == 'text'), "")
-    
-    if user_text_for_search and not is_vision_request:
-        try:
-            query_gen_prompt_text = (
-                f"User's message: \"{user_text_for_search}\"\n"
-                f"Current timestamp: {current_timestamp}\n"
-                "Based on the above, formulate a concise search query for up-to-date info. Respond with ONLY the query."
-            )
-            query_gen_messages = [MsgNode("system", "You are a search query expert."), MsgNode("user", query_gen_prompt_text)]
-            query_response = await llm_client.chat.completions.create(
-                model=config.LLM_MODEL, messages=[p.to_dict() for p in query_gen_messages],
-                max_tokens=75, stream=False, temperature=0.1
-            )
-            if query_response.choices and query_response.choices[0].message.content:
-                search_query = query_response.choices[0].message.content.strip().strip('"')
-                await update_pipeline_embed(f"`{search_query}`", "🔍 **Generated Search Query**")
-        except Exception as e:
-            logger.error(f"LLM Search Query Generation Error: {e}")
-            await update_pipeline_embed("Error during query generation.", "⚠️ **Search Query Error**")
-    else:
-        await update_pipeline_embed("Skipped (input is image-based or no text found).", current_phase_title)
-
-    # --- Stage 2: Execute Searx Search ---
-    current_phase_title = "🌐 **Phase 2: Executing Web Search**"
-    formatted_search_results_for_llm = "No web search was performed or no results were found."
-    display_search_results = "No web search performed or no results."
-
-    if search_query:
-        await update_pipeline_embed("Fetching results...", current_phase_title)
-        search_results_data = await query_searx(search_query)
-        if search_results_data:
-            llm_snippets = [f"[{i+1}] Title: {r.get('title', 'N/A')}\nURL: {r.get('url', '#')}\nSnippet: {r.get('content', r.get('description', 'No snippet.'))}" for i, r in enumerate(search_results_data)]
-            formatted_search_results_for_llm = "\n\n".join(llm_snippets)
+            file = discord.File(io.BytesIO(fixed_audio_data), filename=f"{base_filename}_{filename_suffix}.mp3")
             
-            display_snippets = [f"**[{i+1}] {r.get('title', 'N/A')}**\n*<{r.get('url', '#')}>*\n{r.get('content', r.get('description', 'No snippet.'))[:150]}..." for i, r in enumerate(search_results_data[:3])]
-            display_search_results = "\n\n".join(display_snippets)
-            if len(search_results_data) > 3: display_search_results += f"\n\n...(and {len(search_results_data)-3} more results)"
-            
-            await update_pipeline_embed(display_search_results[:config.EMBED_MAX_LENGTH - 500], f"📄 **Web Search Results (Top {len(search_results_data)})**")
-        else:
-            await update_pipeline_embed("No results found.", current_phase_title)
-    else:
-       await update_pipeline_embed("Skipped.", current_phase_title)
+            content_message = None
+            if is_thought:
+                content_message = "**Sam's thoughts:**"
+            elif filename_suffix == "main_response" or filename_suffix == "full": 
+                content_message = "**Sam's response:**"
 
-    # --- Stage 3: Generate <think> Block ---
-    current_phase_title = "🤔 **Phase 3: Cognitive Alignment (<think> block)**"
-    await update_pipeline_embed("Processing...", current_phase_title)
-    
-    search_context_header = f"--- BEGIN WEB SEARCH RESULTS (Timestamp: {current_timestamp}) ---\n{formatted_search_results_for_llm}\n--- END WEB SEARCH RESULTS ---\n\nUser's original message (MUST use above search results to inform your <think> block):\n"
-    
-    if last_user_node and isinstance(last_user_node.content, list): # Check if last_user_node exists
-        new_content_list = []
-        text_part_found_for_think = False
-        for part in last_user_node.content:
-            if part['type'] == 'text':
-                new_content_list.append({"type": "text", "text": search_context_header + part['text']})
-                text_part_found_for_think = True
+            if isinstance(destination, discord.InteractionMessage):
+                 await destination.channel.send(content=content_message, file=file) 
+            elif hasattr(destination, 'send'): 
+                await destination.send(content=content_message, file=file)
             else:
-                new_content_list.append(part)
-        if not text_part_found_for_think:
-             new_content_list.insert(0, {"type": "text", "text": search_context_header + "(User sent an image or non-text content)"})
-        think_block_user_content_for_llm = new_content_list
+                logger.warning(f"Cannot send TTS to destination of type {type(destination)}")
+
+            logger.info(f"Sent TTS audio: {base_filename}_{filename_suffix}.mp3")
+        except Exception as e:
+            logger.error(f"Error processing or sending TTS for {filename_suffix}: {e}", exc_info=True)
     else:
-        think_block_user_content_for_llm = search_context_header + user_text_for_search
+        logger.warning(f"TTS request failed for {filename_suffix} segment.")
+
+
+async def send_tts_audio(destination: discord.abc.Messageable, text_to_speak: str, base_filename: str = "response"):
+    """
+    Generates TTS audio and sends it. If <think> tags are present,
+    sends thoughts and main response as separate audio files.
+    """
+    if not config.TTS_ENABLED_DEFAULT or not text_to_speak:
+        return
+
+    think_pattern = re.compile(r"<think>(.*?)</think>", re.DOTALL | re.IGNORECASE)
+    match = think_pattern.search(text_to_speak)
+
+    if match:
+        thought_text = match.group(1).strip()
+        response_text = text_to_speak[match.end():].strip() 
         
-    think_block_prompts = [get_system_prompt_for_think_block(), MsgNode("user", think_block_user_content_for_llm)]
-    
-    think_block_content = "<think>\nError: Could not generate <think> block.\n</think>"
+        logger.info("Found <think> tags. Processing thoughts and response separately for TTS.")
+        await _send_audio_segment(destination, thought_text, "thoughts", is_thought=True, base_filename=base_filename)
+        await asyncio.sleep(0.5) 
+        await _send_audio_segment(destination, response_text, "main_response", is_thought=False, base_filename=base_filename)
+    else:
+        logger.info("No <think> tags found. Processing full text for TTS.")
+        await _send_audio_segment(destination, text_to_speak, "full", is_thought=False, base_filename=base_filename)
+
+# -------------------------------------------------------------------
+# Core LLM Interaction Logic (NEW TWO-STEP PROCESS)
+# -------------------------------------------------------------------
+
+async def get_context_aware_llm_stream(prompt_messages: list[MsgNode], is_vision_request: bool):
+    """
+    Performs the two-step LLM call:
+    1. Generate a "suggested context" for the user's query.
+    2. Stream the final response using the original prompt enhanced with the generated context.
+    """
+    if not prompt_messages:
+        raise ValueError("Prompt messages cannot be empty.")
+
+    last_user_message_node = next((msg for msg in reversed(prompt_messages) if msg.role == 'user'), None)
+    if not last_user_message_node:
+        raise ValueError("No user message found in the prompt history.")
+
+    # --- Step 1: Generate the Suggested Context ---
+    logger.info("Step 1: Generating suggested context...")
+    context_generation_prompt = [
+        MsgNode(
+            role="system",
+            content=(
+                "You are a context analysis expert. Your task is to read the user's question or statement "
+                "and generate a concise 'suggested context' for viewing it. This context should clarify "
+                "underlying assumptions, define key terms, or establish a frame of reference that will "
+                "lead to the most insightful and helpful response. Do not answer the user's question. "
+                "Only provide a single, short paragraph for the suggested context."
+            )
+        ),
+        last_user_message_node  # Use the last user message as the basis for context
+    ]
+
+    generated_context = "Context generation failed or was not applicable."
     try:
-        think_model = config.VISION_LLM_MODEL if is_vision_request else config.LLM_MODEL
-        think_response = await llm_client.chat.completions.create(
-            model=think_model, 
-            messages=[p.to_dict() for p in think_block_prompts],
-            max_tokens=1500, stream=False, temperature=0.5
+        # Use a non-streaming call for the context generation
+        context_response = await llm_client.chat.completions.create(
+            model=config.VISION_LLM_MODEL if is_vision_request else config.LLM_MODEL,
+            messages=[msg.to_dict() for msg in context_generation_prompt],
+            max_tokens=250,  # Limit context size
+            stream=False,
+            temperature=0.4,
         )
-        if think_response.choices and think_response.choices[0].message.content:
-            generated_text = think_response.choices[0].message.content.strip()
-            # Ensure it's always wrapped, handling cases where the LLM might forget the outer tags
-            if not generated_text.startswith("<think>"):
-                generated_text = "<think>" + generated_text
-            if not generated_text.endswith("</think>"):
-                generated_text = generated_text + "</think>"
-            think_block_content = generated_text
-            
-            display_think_block = think_block_content
-            if len(display_think_block) > 1800: 
-                display_think_block = display_think_block[:1797] + "..."
-            await update_pipeline_embed(f"```xml\n{display_think_block}\n```", "🧠 **Cognitive Synthesis (<think> Block)**")
+        if context_response.choices and context_response.choices[0].message.content:
+            generated_context = context_response.choices[0].message.content.strip()
+            logger.info(f"Successfully generated context: {generated_context[:150]}...")
+        else:
+            logger.warning("Context generation returned no content.")
+
     except Exception as e:
-        logger.error(f"LLM <think> Block Generation Error: {e}", exc_info=True)
-        await update_pipeline_embed(f"Error: {str(e)[:200]}", "⚠️ **<think> Block Error**")
-        think_block_content = f"<think>\nError generating think block: {e}\n</think>"
+        logger.error(f"Could not generate suggested context: {e}", exc_info=True)
+        # We will proceed with the generated_context holding the error message.
 
-    # --- Stage 4: Signal Final Response Generation ---
-    await update_pipeline_embed("Ready to generate final answer based on the above.", "💬 **Phase 4: Crafting Final Response**")
-
-    # Construct prompts for the final response generation
-    final_response_prompts = [get_system_prompt_for_final_response()]
+    # --- Step 2: Prepare and Stream the Final Response ---
+    logger.info("Step 2: Streaming final response with injected context.")
     
-    # Pass the original user query to give context to the plan execution
-    if last_user_node:
-        final_response_prompts.append(last_user_node)
-    else: # Fallback if somehow last_user_node is None (should not happen if initial_prompt_messages has user)
-        final_response_prompts.append(MsgNode(role="user", content="Please provide a response based on the synthesis."))
+    # Create a deep copy of prompt messages to avoid modifying the original history
+    final_prompt_messages = [MsgNode(m.role, m.content, m.name) for m in prompt_messages]
+    
+    # Find the last user message in the copied list to modify it
+    final_user_message_node = next((msg for msg in reversed(final_prompt_messages) if msg.role == 'user'), None)
 
+    # Extract the original question text
+    original_question = ""
+    if isinstance(final_user_message_node.content, str):
+        original_question = final_user_message_node.content
+    elif isinstance(final_user_message_node.content, list):
+        # For vision requests, find the text part
+        text_part = next((part['text'] for part in final_user_message_node.content if part['type'] == 'text'), "")
+        original_question = text_part
 
-    # The 'Cognitive Synthesis' includes search results and the detailed <think> block.
-    # The assistant then tees up the Action/Response for the model to complete.
-    cognitive_synthesis_and_prompt = (
-        f"---COGNITIVE SYNTHESIS (AUGMENTATION DATA)---\n"
-        f"---RECAP OF WEB SEARCH RESULTS---\n{formatted_search_results_for_llm}\n---END RECAP---\n\n"
-        f"{think_block_content}\n"
-        f"---END COGNITIVE SYNTHESIS---\n\n"
-        f"Based *solely* on the 'Plan of Action' detailed in the `<think>` block above, here is the response:\n"
-        f"Action/Response:"
+    # Construct the new text content with the injected context
+    injected_prompt_text = (
+        f"<model_generated_suggested_context>\n"
+        f"{generated_context}\n"
+        f"</model_generated_suggested_context>\n\n"
+        f"<user_question>\n"
+        f"With that context in mind, please respond to the following:\n"
+        f"{original_question}\n"
+        f"</user_question>"
     )
-    final_response_prompts.append(MsgNode(role="assistant", content=cognitive_synthesis_and_prompt))
-    # No final user message is needed; the assistant message ending with "Action/Response:" prompts completion.
 
+    # Update the content of the last user message node
+    if isinstance(final_user_message_node.content, str):
+        final_user_message_node.content = injected_prompt_text
+    elif isinstance(final_user_message_node.content, list):
+        # Update the text part, keeping image parts intact
+        text_part_found = False
+        for part in final_user_message_node.content:
+            if part['type'] == 'text':
+                part['text'] = injected_prompt_text
+                text_part_found = True
+                break
+        if not text_part_found: # Should not happen if logic is correct
+            final_user_message_node.content.insert(0, {"type": "text", "text": injected_prompt_text})
+
+    # Determine the model for the final response
+    current_model = config.VISION_LLM_MODEL if is_vision_request else config.LLM_MODEL
+    logger.info(f"Using model for final streaming: {current_model}")
+
+    # Create the final stream
     final_stream = await llm_client.chat.completions.create(
-        model=config.VISION_LLM_MODEL if is_vision_request else config.LLM_MODEL,
-        messages=[p.to_dict() for p in final_response_prompts],
+        model=current_model,
+        messages=[msg.to_dict() for msg in final_prompt_messages],
         max_tokens=config.MAX_COMPLETION_TOKENS,
-        stream=True, temperature=0.7 # Temperature could be lowered if strict adherence is still an issue
+        stream=True,
+        temperature=0.7,
     )
-    
-    return final_stream, think_block_content # Return the original think_block for history logging
+
+    return final_stream, generated_context
 
 
 async def stream_llm_response_to_interaction(
     interaction: discord.Interaction,
     prompt_messages: list,
-    title: str = "Sam's Response"
+    title: str = "Sam's Response",
+    is_edit_of_original_response: bool = False 
 ):
-    pipeline_update_message = None 
-    original_interaction_message_id = None
+    """Streams LLM response to a Discord interaction (slash command), using the two-step context process."""
+    message_to_edit = None 
+    original_interaction_message_id = None 
 
     if not interaction.response.is_done():
         try:
             await interaction.response.defer(ephemeral=False) 
-            pipeline_update_message = await interaction.original_response()
-            original_interaction_message_id = pipeline_update_message.id
-        except discord.errors.InteractionResponded:
-            try: 
-                pipeline_update_message = await interaction.original_response()
-                original_interaction_message_id = pipeline_update_message.id
+            message_to_edit = await interaction.original_response()
+            original_interaction_message_id = message_to_edit.id
+        except discord.errors.InteractionResponded: 
+            logger.warning("Interaction already responded before explicit defer, trying to get original response.")
+            try:
+                message_to_edit = await interaction.original_response()
+                original_interaction_message_id = message_to_edit.id
             except discord.NotFound:
-                embed = discord.Embed(title=title, description="⏳ Initializing Cognitive Pipeline...", color=config.EMBED_COLOR["incomplete"])
-                pipeline_update_message = await interaction.followup.send(embed=embed, wait=True)
-                original_interaction_message_id = pipeline_update_message.id
-    if not pipeline_update_message: 
-        embed = discord.Embed(title=title, description="⏳ Initializing Cognitive Pipeline...", color=config.EMBED_COLOR["incomplete"])
-        pipeline_update_message = await interaction.followup.send(embed=embed, wait=True)
-        original_interaction_message_id = pipeline_update_message.id
+                 logger.error("Could not get original response after InteractionResponded error.")
+                 response_embed_fallback = discord.Embed(title=title, description="⏳ Thinking...", color=config.EMBED_COLOR["incomplete"])
+                 message_to_edit = await interaction.followup.send(embed=response_embed_fallback, wait=True)
+                 original_interaction_message_id = message_to_edit.id
+
+
+    if not message_to_edit: 
+        logger.warning("No message to edit after defer attempts, sending new followup for streaming.")
+        response_embed_init = discord.Embed(title=title, description="⏳ Thinking...", color=config.EMBED_COLOR["incomplete"])
+        message_to_edit = await interaction.followup.send(embed=response_embed_init, wait=True)
+        original_interaction_message_id = message_to_edit.id
     
-    is_vision_request = any(isinstance(p.content, list) and any(c.get("type") == "image_url" for c in p.content) for p in prompt_messages)
-    
-    full_final_response_text = ""
+    initial_embed = discord.Embed(title=title, description="⏳ Generating context...", color=config.EMBED_COLOR["incomplete"])
+    await message_to_edit.edit(embed=initial_embed)
+
+    full_response_content = ""
     accumulated_chunk = ""
     last_edit_time = asyncio.get_event_loop().time()
-    
-    final_response_message_to_edit = None
+    embed_count = 0 
+
     try:
-        initial_pipeline_embed = discord.Embed(title=title, description="⏳ Initializing Cognitive Pipeline...", color=config.EMBED_COLOR["incomplete"])
-        await pipeline_update_message.edit(embed=initial_pipeline_embed)
+        is_vision_request = any(isinstance(p.content, list) and any(c.get("type") == "image_url" for c in p.content) for p in prompt_messages)
+        stream, generated_context = await get_context_aware_llm_stream(prompt_messages, is_vision_request)
 
-        final_response_embed = discord.Embed(title=f"{title} (Final Response)", description="⏳ Waiting for cognitive processing...", color=config.EMBED_COLOR["incomplete"])
-        final_response_message_to_edit = await interaction.channel.send(embed=final_response_embed)
+        response_embed = discord.Embed(title=title, color=config.EMBED_COLOR["incomplete"])
+        context_display = f"**Model-Generated Suggested Context:**\n> {generated_context.replace(chr(10), ' ')}\n\n---\n**Response:**\n"
+        response_embed.description = context_display
+        await message_to_edit.edit(embed=response_embed)
 
-        final_stream, think_block_for_history = await execute_cognitive_pipeline(
-            prompt_messages, pipeline_update_message, is_vision_request, title
-        )
-        
-        final_response_embed.description = "" # Clear for streaming
-
-        # Prepend "Action/Response:" if it's not already part of the stream's beginning
-        # This is important because the LLM is now completing `Action/Response: `
-        is_first_chunk = True
-
-        async for chunk_data in final_stream:
-            delta_content = chunk_data.choices[0].delta.content or ""
+        async for chunk_data in stream:
+            delta_content = ""
+            if chunk_data.choices and len(chunk_data.choices) > 0:
+                choice = chunk_data.choices[0]
+                if choice.delta:
+                    delta_content = choice.delta.content or ""
             
-            if is_first_chunk and not delta_content.lstrip().startswith("Action/Response:"):
-                 # Check if full_final_response_text (if any from previous chunks) already starts with it
-                if not full_final_response_text.lstrip().startswith("Action/Response:"):
-                    # Add Action/Response prefix to the embed and internal tracking
-                    if not final_response_embed.description: # only add if description is empty
-                         final_response_embed.description = "Action/Response:\n"
-                    if not full_final_response_text: # only add if text is empty
-                        full_final_response_text = "Action/Response:\n"
-            is_first_chunk = False
-
-            full_final_response_text += delta_content
+            full_response_content += delta_content
             accumulated_chunk += delta_content
 
             current_time = asyncio.get_event_loop().time()
-            if accumulated_chunk and (current_time - last_edit_time >= (1.0 / config.EDITS_PER_SECOND) or len(accumulated_chunk) > 100):
+            
+            if accumulated_chunk and (current_time - last_edit_time >= (1.0 / config.EDITS_PER_SECOND) or len(accumulated_chunk) > 150):
                 try:
-                    final_response_embed.description += accumulated_chunk
-                    if len(final_response_embed.description) > config.EMBED_MAX_LENGTH:
-                        final_response_embed.description = final_response_embed.description[:config.EMBED_MAX_LENGTH]
-                    await final_response_message_to_edit.edit(embed=final_response_embed)
+                    response_embed.description += accumulated_chunk
+                    
+                    if len(response_embed.description) > config.EMBED_MAX_LENGTH:
+                        response_embed.description = response_embed.description[:config.EMBED_MAX_LENGTH]
+                    
+                    await message_to_edit.edit(embed=response_embed)
                     last_edit_time = current_time
-                    accumulated_chunk = ""
-                except (discord.errors.NotFound, discord.errors.HTTPException) as e:
-                    logger.warning(f"Failed to edit final response message during stream: {e}")
-                    return 
+                    accumulated_chunk = "" 
+
+                except discord.errors.NotFound:
+                    logger.warning("Failed to edit message during stream, it might have been deleted.")
+                    return
+                except discord.errors.HTTPException as e:
+                    logger.error(f"HTTPException during stream edit: {e}. Len: {len(response_embed.description)}")
+                    await asyncio.sleep(0.5)
 
         if accumulated_chunk:
-             final_response_embed.description += accumulated_chunk
-        
-        # Ensure "Action/Response:" is at the start of the final text if it was missed
-        if not full_final_response_text.lstrip().startswith("Action/Response:"):
-            full_final_response_text = "Action/Response:\n" + full_final_response_text.lstrip()
-            if final_response_embed.description and not final_response_embed.description.lstrip().startswith("Action/Response:"):
-                 final_response_embed.description = "Action/Response:\n" + final_response_embed.description.lstrip()
+             response_embed.description += accumulated_chunk
 
-
-        final_response_embed.description = final_response_embed.description[:config.EMBED_MAX_LENGTH].strip() or "No valid response generated."
-        final_response_embed.color = config.EMBED_COLOR["complete"]
-        await final_response_message_to_edit.edit(embed=final_response_embed)
+        response_embed.description = response_embed.description[:config.EMBED_MAX_LENGTH].strip()
+        response_embed.color = config.EMBED_COLOR["complete"]
+        if not full_response_content.strip():
+            response_embed.description += "\nNo response or error."
+            response_embed.color = config.EMBED_COLOR["error"]
         
-        channel_id = interaction.channel.id
+        await message_to_edit.edit(embed=response_embed)
+        
+        channel_id = interaction.channel_id
         if channel_id not in message_history: message_history[channel_id] = []
-        message_history[channel_id].append(prompt_messages[-1])
-        message_history[channel_id].append(MsgNode(role="assistant", content=think_block_for_history, name=str(bot.user.id) + "_think"))
-        message_history[channel_id].append(MsgNode(role="assistant", content=full_final_response_text, name=str(bot.user.id)))
+        message_history[channel_id].append(MsgNode(role="assistant", content=full_response_content, name=str(bot.user.id)))
         message_history[channel_id] = message_history[channel_id][-config.MAX_MESSAGE_HISTORY:]
 
         tts_base_filename = f"interaction_{original_interaction_message_id or interaction.id}"
-        await send_tts_audio(interaction.channel, full_final_response_text, base_filename=tts_base_filename) 
+        await send_tts_audio(interaction.channel, full_response_content, base_filename=tts_base_filename) 
 
     except Exception as e:
-        logger.error(f"Error in cognitive pipeline or streaming (interaction): {e}", exc_info=True)
-        error_embed = discord.Embed(title=title, description=f"An error occurred during processing: {str(e)[:1000]}", color=config.EMBED_COLOR["error"])
+        logger.error(f"Error streaming LLM response to interaction: {e}", exc_info=True)
+        error_embed = discord.Embed(title=title, description=f"An error occurred: {str(e)[:1000]}", color=config.EMBED_COLOR["error"])
         try:
-            if pipeline_update_message and not pipeline_update_message.flags.ephemeral : await pipeline_update_message.edit(embed=error_embed)
-            if final_response_message_to_edit: await final_response_message_to_edit.delete() 
+            await message_to_edit.edit(embed=error_embed)
         except discord.errors.NotFound: pass
-    return pipeline_update_message
+    return message_to_edit
 
 
 async def stream_llm_response_to_message(
     target_message: discord.Message, 
-    prompt_messages: list,
+    prompt_messages: list, 
     title: str = "Sam's Response"
 ):
-    pipeline_embed = discord.Embed(title=title, description="⏳ Initializing Cognitive Pipeline...", color=config.EMBED_COLOR["incomplete"])
-    pipeline_update_message = await target_message.reply(embed=pipeline_embed, silent=True) 
+    """Streams LLM response as a reply to a regular Discord message, using the two-step context process."""
+    initial_embed = discord.Embed(title=title, description="⏳ Generating context...", color=config.EMBED_COLOR["incomplete"])
+    current_reply_message = await target_message.reply(embed=initial_embed, silent=True) 
 
-    is_vision_request = any(isinstance(p.content, list) and any(c.get("type") == "image_url" for c in p.content) for p in prompt_messages)
-    
-    full_final_response_text = ""
+    full_response_content = ""
     accumulated_chunk = ""
     last_edit_time = asyncio.get_event_loop().time()
+    embed_count = 0
 
-    final_response_message_to_edit = None
     try:
-        initial_pipeline_embed = discord.Embed(title=title, description="⏳ Initializing Cognitive Pipeline...", color=config.EMBED_COLOR["incomplete"])
-        await pipeline_update_message.edit(embed=initial_pipeline_embed)
+        is_vision_request = any(isinstance(p.content, list) and any(c.get("type") == "image_url" for c in p.content) for p in prompt_messages)
+        stream, generated_context = await get_context_aware_llm_stream(prompt_messages, is_vision_request)
 
-        final_response_embed = discord.Embed(title=f"{title} (Final Response)", description="⏳ Waiting for cognitive processing...", color=config.EMBED_COLOR["incomplete"])
-        final_response_message_to_edit = await target_message.channel.send(embed=final_response_embed)
+        response_embed = discord.Embed(title=title, color=config.EMBED_COLOR["incomplete"])
+        context_display = f"**Model-Generated Suggested Context:**\n> {generated_context.replace(chr(10), ' ')}\n\n---\n**Response:**\n"
+        response_embed.description = context_display
+        await current_reply_message.edit(embed=response_embed)
 
-        final_stream, think_block_for_history = await execute_cognitive_pipeline(
-            prompt_messages, pipeline_update_message, is_vision_request, title
-        )
-        
-        final_response_embed.description = "" 
-        is_first_chunk = True
-
-
-        async for chunk_data in final_stream:
-            delta_content = chunk_data.choices[0].delta.content or ""
-
-            if is_first_chunk and not delta_content.lstrip().startswith("Action/Response:"):
-                if not full_final_response_text.lstrip().startswith("Action/Response:"):
-                    if not final_response_embed.description:
-                         final_response_embed.description = "Action/Response:\n"
-                    if not full_final_response_text:
-                        full_final_response_text = "Action/Response:\n"
-            is_first_chunk = False
+        async for chunk_data in stream:
+            delta_content = ""
+            if chunk_data.choices and len(chunk_data.choices) > 0:
+                choice = chunk_data.choices[0]
+                if choice.delta:
+                    delta_content = choice.delta.content or ""
             
-            full_final_response_text += delta_content
+            full_response_content += delta_content
             accumulated_chunk += delta_content
 
             current_time = asyncio.get_event_loop().time()
-            if accumulated_chunk and (current_time - last_edit_time >= (1.0 / config.EDITS_PER_SECOND) or len(accumulated_chunk) > 100):
-                try:
-                    final_response_embed.description += accumulated_chunk
-                    if len(final_response_embed.description) > config.EMBED_MAX_LENGTH:
-                        final_response_embed.description = final_response_embed.description[:config.EMBED_MAX_LENGTH]
-                    await final_response_message_to_edit.edit(embed=final_response_embed)
-                    last_edit_time = current_time
-                    accumulated_chunk = ""
-                except (discord.errors.NotFound, discord.errors.HTTPException) as e:
-                    logger.warning(f"Failed to edit final response message during stream: {e}")
-                    return
-
-        if accumulated_chunk:
-            final_response_embed.description += accumulated_chunk
-
-        if not full_final_response_text.lstrip().startswith("Action/Response:"):
-            full_final_response_text = "Action/Response:\n" + full_final_response_text.lstrip()
-            if final_response_embed.description and not final_response_embed.description.lstrip().startswith("Action/Response:"):
-                 final_response_embed.description = "Action/Response:\n" + final_response_embed.description.lstrip()
             
-        final_response_embed.description = final_response_embed.description[:config.EMBED_MAX_LENGTH].strip() or "No valid response generated."
-        final_response_embed.color = config.EMBED_COLOR["complete"]
-        await final_response_message_to_edit.edit(embed=final_response_embed)
+            if accumulated_chunk and (current_time - last_edit_time >= (1.0 / config.EDITS_PER_SECOND) or len(accumulated_chunk) > 150):
+                try:
+                    response_embed.description += accumulated_chunk
+
+                    if len(response_embed.description) > config.EMBED_MAX_LENGTH:
+                        response_embed.description = response_embed.description[:config.EMBED_MAX_LENGTH]
+
+                    await current_reply_message.edit(embed=response_embed)
+                    last_edit_time = current_time
+                    accumulated_chunk = "" 
+                    
+                except discord.errors.NotFound:
+                    logger.warning("Failed to edit message during stream, it might have been deleted.")
+                    return
+                except discord.errors.HTTPException as e:
+                    logger.error(f"HTTPException during stream edit: {e}. Len: {len(response_embed.description)}")
+                    await asyncio.sleep(0.5) 
+        
+        if accumulated_chunk:
+            response_embed.description += accumulated_chunk
+            
+        response_embed.description = response_embed.description[:config.EMBED_MAX_LENGTH].strip()
+        response_embed.color = config.EMBED_COLOR["complete"]
+        if not full_response_content.strip():
+            response_embed.description += "\nNo response or error."
+            response_embed.color = config.EMBED_COLOR["error"]
+        
+        await current_reply_message.edit(embed=response_embed)
         
         channel_id = target_message.channel.id
         if channel_id not in message_history: message_history[channel_id] = []
-        message_history[channel_id].append(prompt_messages[-1])
-        message_history[channel_id].append(MsgNode(role="assistant", content=think_block_for_history, name=str(bot.user.id) + "_think"))
-        message_history[channel_id].append(MsgNode(role="assistant", content=full_final_response_text, name=str(bot.user.id)))
+        message_history[channel_id].append(MsgNode(role="assistant", content=full_response_content, name=str(bot.user.id)))
         message_history[channel_id] = message_history[channel_id][-config.MAX_MESSAGE_HISTORY:]
 
-        await send_tts_audio(target_message.channel, full_final_response_text, base_filename=f"message_{target_message.id}")
+        await send_tts_audio(target_message.channel, full_response_content, base_filename=f"message_{target_message.id}")
 
     except Exception as e:
-        logger.error(f"Error in cognitive pipeline or streaming (message): {e}", exc_info=True)
-        error_embed = discord.Embed(title=title, description=f"An error occurred during processing: {str(e)[:1000]}", color=config.EMBED_COLOR["error"])
+        logger.error(f"Error streaming LLM response to message: {e}", exc_info=True)
+        error_embed = discord.Embed(title=title, description=f"An error occurred: {str(e)[:1000]}", color=config.EMBED_COLOR["error"])
         try:
-            await pipeline_update_message.edit(embed=error_embed)
-            if final_response_message_to_edit: await final_response_message_to_edit.delete()
+            await current_reply_message.edit(embed=error_embed) 
         except discord.errors.NotFound: pass
-    return pipeline_update_message
+    return current_reply_message 
 
 # -------------------------------------------------------------------
 # Text-to-Speech (TTS)
 # -------------------------------------------------------------------
 async def tts_request(text: str, speed: float = 1.3) -> bytes | None:
     if not text: return None
-    payload = { "input": text, "voice": config.TTS_VOICE, "response_format": "mp3", "speed": speed }
+    payload = {
+        "input": text,
+        "voice": config.TTS_VOICE,
+        "response_format": "mp3",
+        "speed": speed,
+    }
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(config.TTS_API_URL, json=payload, timeout=30) as resp:
-                if resp.status == 200: return await resp.read()
-                else: logger.error(f"TTS Fail: {resp.status}, {await resp.text()}"); return None
-    except Exception as e: logger.error(f"TTS Error: {e}", exc_info=True); return None
-
-async def _send_audio_segment(destination: discord.abc.Messageable, segment_text: str, filename_suffix: str, base_filename: str = "response"):
-    if not segment_text: return
-    logger.info(f"Requesting TTS for {filename_suffix}: {segment_text[:100]}...")
-    tts_audio_data = await tts_request(segment_text)
-    if tts_audio_data:
-        try:
-            audio = AudioSegment.from_file(io.BytesIO(tts_audio_data), format="mp3")
-            output_buffer = io.BytesIO()
-            audio.export(output_buffer, format="mp3", bitrate="128k")
-            file = discord.File(io.BytesIO(output_buffer.getvalue()), filename=f"{base_filename}_{filename_suffix}.mp3")
-            content_message = "**Sam's spoken response:**"
-            if isinstance(destination, discord.Interaction):
-                await destination.followup.send(content=content_message, file=file)
-            elif hasattr(destination, 'send'):
-                await destination.send(content=content_message, file=file)
-            else:
-                await destination.channel.send(content=content_message, file=file)
-            logger.info(f"Sent TTS audio: {base_filename}_{filename_suffix}.mp3")
-        except Exception as e: logger.error(f"Error processing/sending TTS: {e}", exc_info=True)
-    else: logger.warning(f"TTS request failed for {filename_suffix} segment.")
-
-
-async def send_tts_audio(destination: discord.abc.Messageable, text_to_speak: str, base_filename: str = "response"):
-    if not config.TTS_ENABLED_DEFAULT or not text_to_speak: return
-    
-    action_response_match = re.search(r"Action/Response:(.*?)(\sReflective Adjustment:|</s>|$)", text_to_speak, re.DOTALL | re.IGNORECASE)
-    speakable_text = ""
-    if action_response_match:
-        speakable_text = action_response_match.group(1).strip()
-    else: # If "Action/Response:" is missing, clean and speak the whole text
-        logger.warning("Could not find 'Action/Response:' in text for TTS, attempting to clean full text. This may indicate an issue in the LLM response structure.")
-        speakable_text = text_to_speak
-
-    cleaned_text = clean_text_for_tts(speakable_text) 
-    if cleaned_text:
-        await _send_audio_segment(destination, cleaned_text, "response", base_filename=base_filename)
+                if resp.status == 200:
+                    return await resp.read()
+                else:
+                    logger.error(f"TTS request failed: status={resp.status}, resp={await resp.text()}")
+                    return None
+    except asyncio.TimeoutError:
+        logger.error("TTS request timed out.")
+        return None
+    except Exception as e:
+        logger.error(f"TTS request error: {e}", exc_info=True)
+        return None
 
 # -------------------------------------------------------------------
 # Web Scraping and Search
 # -------------------------------------------------------------------
+# JavaScript for expanding "Show more" buttons safely
+# Adapted from user's provided x-scrape.py
 JS_EXPAND_SHOWMORE_TWITTER = """
 (maxClicks) => {
     let clicks = 0;
@@ -615,12 +552,17 @@ JS_EXPAND_SHOWMORE_TWITTER = """
     function isSafeToClick(showMoreEl) {
         let parentAnchor = showMoreEl.closest('a');
         if (parentAnchor && parentAnchor.href && parentAnchor.href.includes('/status/')) {
+            // Simplified: if it's a link to a status, assume it's for an embedded tweet and might navigate.
+            // A more complex check would compare parent article's main link.
+            // For now, this is a basic heuristic.
+            // console.log("Found 'Show more' within a status link, might be embedded:", showMoreEl.textContent);
         }
         if (showMoreEl.closest('[data-testid="card.wrapper"]')) {
              return false; 
         }
         return true;
     }
+
     const articles = document.querySelectorAll('article[data-testid="tweet"]');
     for (const article of articles) {
         if (clicks >= maxClicks) break;
@@ -633,7 +575,9 @@ JS_EXPAND_SHOWMORE_TWITTER = """
                     try {
                         el.click();
                         clicks++;
-                    } catch (e) {}
+                    } catch (e) {
+                        // console.warn("Failed to click 'Show more' candidate:", e);
+                    }
                 }
             }
         }
@@ -642,6 +586,7 @@ JS_EXPAND_SHOWMORE_TWITTER = """
 }
 """
 
+# JavaScript for extracting tweet data, adapted from user's x-scrape.py
 JS_EXTRACT_TWEETS_TWITTER = """
 () => {
     const tweets = [];
@@ -649,9 +594,11 @@ JS_EXTRACT_TWEETS_TWITTER = """
         try {
             const timeTag = article.querySelector('time');
             const timestamp = timeTag ? timeTag.getAttribute('datetime') : null;
+            
             let tweetLink = null;
             let id = '';
             let username = 'unknown_user'; 
+
             const primaryLinkElement = timeTag ? timeTag.closest('a[href*="/status/"]') : null;
             if (primaryLinkElement) {
                 tweetLink = primaryLinkElement.href;
@@ -667,6 +614,7 @@ JS_EXTRACT_TWEETS_TWITTER = """
                     if(!tweetLink && articleLinks.length > 0) tweetLink = articleLinks[0].href;
                 }
             }
+
             if (tweetLink) {
                 const match = tweetLink.match(/\/([a-zA-Z0-9_]+)\/status\/(\d+)/);
                 if (match) {
@@ -674,8 +622,10 @@ JS_EXTRACT_TWEETS_TWITTER = """
                     id = match[2];
                 }
             }
+
             const tweetTextElement = article.querySelector('div[data-testid="tweetText"]');
             const content = tweetTextElement ? tweetTextElement.innerText.trim() : '';
+
             const socialContextElement = article.querySelector('div[data-testid="socialContext"]');
             let is_repost = false; 
             let reposted_by = null; 
@@ -694,8 +644,9 @@ JS_EXTRACT_TWEETS_TWITTER = """
                     }
                  }
             }
+            
             if (content || article.querySelector('[data-testid="tweetPhoto"], [data-testid="videoPlayer"]')) { 
-                tweets.push({
+                 tweets.push({
                     id: id || `no-id-${Date.now()}-${Math.random()}`, 
                     username: username, 
                     content: content,
@@ -705,22 +656,14 @@ JS_EXTRACT_TWEETS_TWITTER = """
                     tweet_url: tweetLink || (id ? `https://x.com/${username}/status/${id}` : '')
                 });
             }
-        } catch (e) {}
+        } catch (e) {
+            // console.warn('Error extracting a tweet with JS:', e);
+        }
     });
     return tweets;
 }
 """
 
-async def query_searx(query: str) -> list:
-    logger.info(f"Querying Searx for: {query}")
-    params = {'q': query, 'format': 'json', 'language': 'en-US'}
-    if config.SEARX_PREFERENCES: params['preferences'] = config.SEARX_PREFERENCES
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(config.SEARX_URL, params=params, timeout=10) as response:
-                response.raise_for_status() 
-                return (await response.json()).get('results', [])[:10]
-    except Exception as e: logger.error(f"Searx query failed for '{query}': {e}"); return []
 
 async def scrape_website(url: str) -> str | None:
     logger.info(f"Scraping website: {url}")
@@ -750,16 +693,16 @@ async def scrape_website(url: str) -> str | None:
                 )
                 context_manager = context
             else: 
-                browser_instance_sw = await p.chromium.launch(
+                 browser_instance_sw = await p.chromium.launch(
                     headless=False, 
                     args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
                 )
-                context = await browser_instance_sw.new_context(
+                 context = await browser_instance_sw.new_context(
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
                     java_script_enabled=True, 
                     ignore_https_errors=True
-                )
-                context_manager = context
+                 )
+                 context_manager = context
 
             page = await context_manager.new_page()
             await page.goto(url, wait_until='domcontentloaded', timeout=25000) 
@@ -780,7 +723,7 @@ async def scrape_website(url: str) -> str | None:
                     logger.warning(f"Error with selector {selector} on {url}: {e_sel}")
             
             if not content or len(content.strip()) < 100 : 
-                content = await page.evaluate('document.body.innerText')
+                 content = await page.evaluate('document.body.innerText')
             
             cleaned_content = re.sub(r'\s\s+', ' ', content.strip()) 
             return cleaned_content if cleaned_content else None
@@ -807,6 +750,7 @@ async def scrape_website(url: str) -> str | None:
         if browser_instance_sw and not profile_dir_usable: 
             try: await browser_instance_sw.close()
             except Exception as e_browser_close: logger.warning(f"Ignoring error closing non-persistent browser for {url}: {e_browser_close}")
+
 
 async def scrape_latest_tweets(username_queried: str, limit: int = 5) -> list:
     logger.info(f"Scraping last {limit} tweets for @{username_queried} with JS enhancement.")
@@ -944,6 +888,28 @@ async def scrape_latest_tweets(username_queried: str, limit: int = 5) -> list:
     logger.info(f"Finished scraping. Collected {len(tweets_collected)} tweets for @{username_queried}.")
     return tweets_collected[:limit]
 
+
+async def query_searx(query: str) -> list:
+    logger.info(f"Querying Searx for: {query}")
+    params = {'q': query, 'format': 'json', 'language': 'en-US'}
+    if config.SEARX_PREFERENCES: 
+        params['preferences'] = config.SEARX_PREFERENCES
+        
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(config.SEARX_URL, params=params, timeout=10) as response:
+                response.raise_for_status() 
+                results_json = await response.json()
+                return results_json.get('results', [])[:5] 
+    except aiohttp.ClientError as e:
+        logger.error(f"Searx query failed for '{query}': {e}")
+    except json.JSONDecodeError:
+        logger.error(f"Failed to decode JSON response from Searx for query: {query}")
+    return []
+
+# -------------------------------------------------------------------
+# YouTube and Audio Transcription
+# -------------------------------------------------------------------
 async def fetch_youtube_transcript(url: str) -> str | None:
     try:
         video_id_match = re.search(r'(?:v=|\/|embed\/|shorts\/|youtu\.be\/)([0-9A-Za-z_-]{11})', url)
@@ -952,7 +918,7 @@ async def fetch_youtube_transcript(url: str) -> str | None:
             return None
         video_id = video_id_match.group(1)
         logger.info(f"Fetching transcript for YouTube video ID: {video_id}")
-        transcript_list = await asyncio.to_thread(YouTubeTranscriptApi.list_transcripts, video_id)
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
         
         transcript = None
         try: 
@@ -968,10 +934,10 @@ async def fetch_youtube_transcript(url: str) -> str | None:
             available_langs = [t.language for t in transcript_list]
             logger.warning(f"No English transcript for {video_id}. Available: {available_langs}. Trying first available.")
             if available_langs:
-                transcript = transcript_list.find_generated_transcript([available_langs[0]]) 
+                 transcript = transcript_list.find_generated_transcript([available_langs[0]]) 
 
         if transcript:
-            fetched_transcript_data = await asyncio.to_thread(transcript.fetch)
+            fetched_transcript_data = transcript.fetch()
             full_text = " ".join([entry['text'] for entry in fetched_transcript_data])
             return f"(Language: {transcript.language}) {full_text}" if transcript.language != 'en' else full_text
         else:
@@ -1004,19 +970,21 @@ def transcribe_audio_file(file_path: str) -> str | None:
             torch.cuda.empty_cache()
 
 # -------------------------------------------------------------------
-# Reminder Task & Helper
+# Reminder Task
 # -------------------------------------------------------------------
 @tasks.loop(seconds=30) 
 async def check_reminders():
     now = datetime.now()
     due_reminders_indices = []
     
+    # logger.debug(f"Checking reminders... {len(reminders)} pending.") # Optional: verbose logging
     for i, reminder_tuple in enumerate(reminders): 
         reminder_time, channel_id, user_id, message_content, original_time_str = reminder_tuple
+        # logger.debug(f"Checking reminder: Time {reminder_time}, Now {now}") # Optional
         if now >= reminder_time:
             logger.info(f"Reminder DUE for user {user_id} in channel {channel_id}: {message_content}")
             try:
-                channel = await bot.fetch_channel(channel_id)
+                channel = await bot.fetch_channel(channel_id) # Use fetch_channel
                 user = await bot.fetch_user(user_id) 
                 
                 channel_name_for_log = "DM" if isinstance(channel, discord.DMChannel) else getattr(channel, 'name', f"ID:{channel_id}")
@@ -1037,16 +1005,18 @@ async def check_reminders():
                     if not user: logger.warning(f"Could not fetch user for reminder: UserID {user_id}")
                 due_reminders_indices.append(i)
             except discord.errors.NotFound:
-                logger.warning(f"Channel or User not found for reminder: ChID {channel_id}, UserID {user_id}. Removing reminder.")
-                due_reminders_indices.append(i)
+                 logger.warning(f"Channel or User not found for reminder: ChID {channel_id}, UserID {user_id}. Removing reminder.")
+                 due_reminders_indices.append(i) # Also mark for removal if not found
             except Exception as e:
                 logger.error(f"Failed to send reminder (ChID {channel_id}, UserID {user_id}): {e}", exc_info=True)
+                # Decide if you want to keep the reminder for a retry or remove it. For now, removing.
                 due_reminders_indices.append(i) 
     
     if due_reminders_indices:
         logger.info(f"Removing {len(due_reminders_indices)} due reminders.")
         for index in sorted(due_reminders_indices, reverse=True):
             reminders.pop(index)
+
 
 def parse_time_string_to_delta(time_str: str) -> tuple[timedelta | None, str | None]:
     patterns = {
@@ -1081,105 +1051,220 @@ def parse_time_string_to_delta(time_str: str) -> tuple[timedelta | None, str | N
 # -------------------------------------------------------------------
 # Slash Commands (Application Commands)
 # -------------------------------------------------------------------
-@bot.tree.command(name="remindme", description="Sets a reminder.")
-@app_commands.describe(time_duration="Duration (e.g., '10m', '2h30m', '1d').", reminder_message="The message for your reminder.")
+
+@bot.tree.command(name="remindme", description="Sets a reminder. E.g., 1h30m Check the oven.")
+@app_commands.describe(
+    time_duration="Duration (e.g., '10m', '2h30m', '1d').",
+    reminder_message="The message for your reminder."
+)
 async def remindme_slash_command(interaction: discord.Interaction, time_duration: str, reminder_message: str):
     time_delta, descriptive_time_str = parse_time_string_to_delta(time_duration)
+
     if not time_delta or time_delta.total_seconds() <= 0:
-        await interaction.response.send_message("Invalid time duration.", ephemeral=True)
+        await interaction.response.send_message("Invalid time duration. Please use formats like '10m', '2h30m', '1d'. Minimum 1 second.", ephemeral=True)
         return
+
     reminder_time = datetime.now() + time_delta
     reminders.append((reminder_time, interaction.channel_id, interaction.user.id, reminder_message, descriptive_time_str))
+    
     await interaction.response.send_message(f"Okay, {interaction.user.mention}! I'll remind you in {descriptive_time_str} about: \"{reminder_message}\"")
-
-@bot.tree.command(name="search", description="Performs a web search and provides a cognitively processed summary.")
-@app_commands.describe(query="Your search query.")
-async def search_slash_command(interaction: discord.Interaction, query: str):
-    logger.info(f"Search command invoked by {interaction.user.name} for query: {query}.")
-    prompt_messages = [
-        MsgNode(role="user", content=f"Please research and provide a comprehensive answer to the following query: '{query}'")
-    ]
-    await stream_llm_response_to_interaction(interaction, prompt_messages, title=f"Cognitive Search for: {query}")
+    logger.info(f"Reminder set via slash command for {interaction.user.name} at {reminder_time} for: {reminder_message}")
 
 @bot.tree.command(name="roast", description="Generates a comedy routine based on a webpage.")
 @app_commands.describe(url="The URL of the webpage to roast.")
 async def roast_slash_command(interaction: discord.Interaction, url: str):
     logger.info(f"Roast command invoked by {interaction.user.name} for {url}.")
-    webpage_text = await scrape_website(url)
-    if not webpage_text or "Failed to scrape" in webpage_text or "Scraping timed out" in webpage_text:
-        await interaction.response.send_message(f"Sorry, I couldn't properly roast {url}. {webpage_text if webpage_text else 'Could not retrieve content.'}", ephemeral=True)
-        return
+    # Deferral is now handled inside stream_llm_response_to_interaction
+    try:
+        webpage_text = await scrape_website(url)
+        if not webpage_text or "Failed to scrape" in webpage_text or "Scraping timed out" in webpage_text:
+            # Need to defer before sending a followup if we don't stream
+            await interaction.response.defer(ephemeral=True)
+            await interaction.followup.send(f"Sorry, I couldn't properly roast {url}. {webpage_text if webpage_text else 'Could not retrieve content.'}")
+            return
 
-    prompt_messages = [
-        MsgNode(role="system", content="You are a witty comedian. Your goal is to roast the provided web page content."),
-        MsgNode(role="user", content=f"Analyze the content from {url} (provided below) and write a short, witty, and engaging comedy routine about it. Keep it light-hearted and observational.\n\nWebsite Content:\n{webpage_text[:3000]}")
-    ]
-    await stream_llm_response_to_interaction(interaction, prompt_messages, title=f"Comedy Roast of {url}")
+        prompt_nodes = [
+            get_system_prompt(),
+            MsgNode(role="user", content=f"Analyze the content from {url} (provided below) and write a short, witty, and engaging comedy routine about it. Keep it light-hearted and observational.\n\nWebsite Content:\n{webpage_text[:3000]}")
+        ]
+        await stream_llm_response_to_interaction(interaction, prompt_nodes, title=f"Comedy Roast of {url}")
+    except Exception as e_cmd:
+        logger.error(f"Error during roast_slash_command execution for {url}: {e_cmd}", exc_info=True)
+        if not interaction.response.is_done():
+            try:
+                await interaction.response.send_message(f"Sorry, an error occurred while roasting {url}: {str(e_cmd)[:1000]}", ephemeral=True)
+            except Exception as e_resp_err:
+                logger.error(f"Further error sending error response for roast {url}: {e_resp_err}")
+
+
+@bot.tree.command(name="search", description="Performs a web search and summarizes results.")
+@app_commands.describe(query="Your search query.")
+async def search_slash_command(interaction: discord.Interaction, query: str):
+    logger.info(f"Search command invoked by {interaction.user.name} for query: {query}.")
+    try:
+        await interaction.response.defer(thinking=True, ephemeral=False)
+        logger.info(f"Search command deferred successfully for query: {query}.")
+    except Exception as e_defer:
+        logger.error(f"Error during defer in search for query '{query}': {e_defer}", exc_info=True)
+        return
+    
+    try:
+        search_results = await query_searx(query)
+        if not search_results:
+            await interaction.followup.send("No search results found for your query.")
+            return
+            
+        search_snippets = []
+        for i, r in enumerate(search_results):
+            title = r.get('title', 'N/A')
+            res_url = r.get('url', 'N/A') 
+            snippet_text = r.get('content', r.get('description', 'No snippet available.'))
+            search_snippets.append(f"{i+1}. **{discord.utils.escape_markdown(title)}** (<{res_url}>)\n   {discord.utils.escape_markdown(snippet_text[:250])}...")
+
+        formatted_results = "\n\n".join(search_snippets)
+        embed = discord.Embed(title=f"Top Search Results for: {query}", description=formatted_results[:config.EMBED_MAX_LENGTH], color=config.EMBED_COLOR["incomplete"])
+        await interaction.followup.send(embed=embed) 
+
+        prompt_nodes = [
+            get_system_prompt(),
+            MsgNode(role="user", content=f"Please provide a concise summary of the following search results for the query '{query}':\n\n{formatted_results[:3000]}") 
+        ]
+        
+        # This will use the two-step context process now
+        await stream_llm_response_to_interaction(interaction, prompt_nodes, title=f"Summary for: {query}", is_edit_of_original_response=True)
+
+    except Exception as e_cmd:
+        logger.error(f"Error during search_slash_command execution for query '{query}' after defer: {e_cmd}", exc_info=True)
+        try:
+            await interaction.followup.send(f"Sorry, an error occurred while searching for '{query}': {str(e_cmd)[:1000]}", ephemeral=True)
+        except Exception as e_followup_err:
+            logger.error(f"Further error sending error followup for search '{query}': {e_followup_err}")
+
 
 @bot.tree.command(name="pol", description="Generates a sarcastic response to a political statement.")
 @app_commands.describe(statement="The political statement.")
 async def pol_slash_command(interaction: discord.Interaction, statement: str):
     logger.info(f"Pol command invoked by {interaction.user.name} with statement: {statement[:50]}.")
-    prompt_messages = [
-        MsgNode(role="system", content="You are a bot that generates extremely sarcastic, snarky, and troll-like comments to mock extremist political views or absurd political statements. Your goal is to be biting and humorous, undermining the statement without being directly offensive or vulgar. Focus on wit and irony."),
-        MsgNode(role="user", content=f"Generate a sarcastic comeback to this political statement: \"{statement}\"")
-    ]
-    await stream_llm_response_to_interaction(interaction, prompt_messages, title="Sarcastic Political Commentary")
+    # Deferral is now handled inside stream_llm_response_to_interaction
+    try:
+        system_content = (
+            "You are a bot that generates extremely sarcastic, snarky, and troll-like comments "
+            "to mock extremist political views or absurd political statements. Your goal is to be biting and humorous, "
+            "undermining the statement without being directly offensive or vulgar. Focus on wit and irony."
+        )
+        prompt_nodes = [
+            MsgNode(role="system", content=system_content),
+            MsgNode(role="user", content=f"Generate a sarcastic comeback to this political statement: \"{statement}\"")
+        ]
+        # This will NOT use the two-step process because we are overriding the system prompt.
+        # To use the two-step process here, the logic would need to be more complex.
+        # For now, this specific command will behave as it did before.
+        await stream_llm_response_to_interaction(interaction, prompt_nodes, title="Sarcastic Political Commentary")
+    except Exception as e_cmd:
+        logger.error(f"Error during pol_slash_command execution after defer: {e_cmd}", exc_info=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"Sorry, an error occurred: {str(e_cmd)[:1000]}", ephemeral=True)
 
 
 @bot.tree.command(name="gettweets", description="Fetches and summarizes recent tweets from a user.")
 @app_commands.describe(username="The X/Twitter username (without @).", limit="Number of tweets to fetch (max 15).")
 async def gettweets_slash_command(interaction: discord.Interaction, username: str, limit: app_commands.Range[int, 1, 15] = 5):
-    await interaction.response.defer(ephemeral=False)
     logger.info(f"Gettweets command invoked by {interaction.user.name} for @{username}.")
-    
-    tweets = await scrape_latest_tweets(username.lstrip('@'), limit=limit)
-    if not tweets:
-        await interaction.followup.send(f"Could not fetch tweets for @{username.lstrip('@')}. The profile might be private, non-existent, or X is blocking the request. Scraping X is very unreliable.")
+    try:
+        await interaction.response.defer(thinking=True, ephemeral=False)
+        logger.info(f"Gettweets command deferred successfully for @{username}.")
+    except discord.errors.NotFound as e_nf_defer: 
+        logger.error(f"NotFound (Unknown Interaction) error during defer in gettweets for @{username}: {e_nf_defer}. Interaction ID: {interaction.id}. This interaction is likely lost.")
+        return 
+    except Exception as e_defer: 
+        logger.error(f"Generic error during defer in gettweets for @{username}: {e_defer}", exc_info=True)
         return
 
-    tweet_texts = [f"- {discord.utils.escape_markdown(t.get('content', 'N/A'))}" for t in tweets]
-    raw_tweets_display = "\n".join(tweet_texts)
+    try:
+        tweets = await scrape_latest_tweets(username.lstrip('@'), limit=limit)
 
-    await interaction.followup.send(f"Found {len(tweets)} recent tweets for **@{username.lstrip('@')}**. Now generating a summary...")
+        if not tweets:
+            await interaction.followup.send(f"Could not fetch tweets for @{username.lstrip('@')}. The profile might be private, non-existent, or X is blocking the request. Scraping X is very unreliable.")
+            return
 
-    prompt_messages = [
-        MsgNode(role="user", content=f"Summarize the key themes, topics, and overall sentiment from the following recent tweets by @{username.lstrip('@')}:\n\n{raw_tweets_display[:3500]}")
-    ]
-    await stream_llm_response_to_interaction(interaction, prompt_messages, title=f"Tweet Summary for @{username.lstrip('@')}")
+        tweet_texts = [
+            f"[{t.get('timestamp', 'N/A')}] @{t.get('original_author', username.lstrip('@'))}: {discord.utils.escape_markdown(t.get('content', 'N/A'))}" 
+            for t in tweets
+        ]
+        raw_tweets_display = "\n\n".join(tweet_texts)
+
+        embed_title = f"Recent Tweets from @{username.lstrip('@')}"
+        if not raw_tweets_display: raw_tweets_display = "No tweet content could be displayed."
+
+        raw_tweet_chunks = chunk_text(raw_tweets_display, config.EMBED_MAX_LENGTH)
+        for i, chunk in enumerate(raw_tweet_chunks):
+            chunk_title = embed_title if i == 0 else f"{embed_title} (cont.)"
+            embed = discord.Embed(title=chunk_title, description=chunk, color=config.EMBED_COLOR["incomplete"])
+            await interaction.followup.send(embed=embed) 
+
+        prompt_nodes_summary = [
+            get_system_prompt(),
+            MsgNode(role="user", content=f"Summarize the key themes, topics, and overall sentiment from the following recent tweets by @{username.lstrip('@')}:\n\n{raw_tweets_display[:3500]}")
+        ]
+        
+        # This will now use the two-step context process
+        await stream_llm_response_to_interaction(
+            interaction, 
+            prompt_nodes_summary, 
+            title=f"Tweet Summary for @{username.lstrip('@')}",
+            is_edit_of_original_response=True 
+        )
+
+    except Exception as e_cmd:
+        logger.error(f"Error during gettweets_slash_command execution for @{username} after defer: {e_cmd}", exc_info=True)
+        try:
+            await interaction.followup.send(f"Sorry, an error occurred while fetching tweets for @{username}: {str(e_cmd)[:1000]}", ephemeral=True)
+        except Exception as e_followup_err:
+            logger.error(f"Further error sending error followup for @{username}: {e_followup_err}")
+
 
 @bot.tree.command(name="ap", description="Describes an attached image with a creative AP Photo twist.")
 @app_commands.describe(image="The image to describe.", user_prompt="Optional additional prompt for the description.")
 async def ap_slash_command(interaction: discord.Interaction, image: discord.Attachment, user_prompt: str = ""):
     logger.info(f"AP command invoked by {interaction.user.name}.")
-    if not image.content_type or not image.content_type.startswith("image/"):
-        await interaction.response.send_message("The attached file is not a valid image.", ephemeral=True)
-        return
+    # Deferral is now handled inside stream_llm_response_to_interaction
+    try:
+        if not image.content_type or not image.content_type.startswith("image/"):
+            await interaction.response.defer(ephemeral=True)
+            await interaction.followup.send("The attached file is not a valid image.")
+            return
 
-    image_bytes = await image.read()
-    base64_image = base64.b64encode(image_bytes).decode('utf-8')
-    image_url_for_llm = f"data:{image.content_type};base64,{base64_image}"
+        image_bytes = await image.read()
+        base64_image = base64.b64encode(image_bytes).decode('utf-8')
+        image_url_for_llm = f"data:{image.content_type};base64,{base64_image}"
 
-    celebrities = ["Keanu Reeves", "Dwayne 'The Rock' Johnson", "Zendaya", "Tom Hanks", "Margot Robbie", "Ryan Reynolds", "Awkwafina", "Idris Elba", "Beyoncé", "Leonardo DiCaprio"]
-    chosen_celebrity = random.choice(celebrities)
+        celebrities = ["Keanu Reeves", "Dwayne 'The Rock' Johnson", "Zendaya", "Tom Hanks", "Margot Robbie", "Ryan Reynolds", "Awkwafina", "Idris Elba", "Beyoncé", "Leonardo DiCaprio"]
+        chosen_celebrity = random.choice(celebrities)
 
-    llm_prompt_text = (
-        f"You are an AP photo caption writer. Describe the attached image in a detailed and intricate way, "
-        f"as if for a blind person. However, creatively replace the main subject or character in the image with {chosen_celebrity}. "
-        f"Begin your response with 'AP Photo: {chosen_celebrity}...' "
-        f"If the user provided an additional prompt, consider it: '{user_prompt}'"
-    )
-    
-    prompt_messages = [
-        MsgNode(
-            role="user",
-            content=[ 
-                {"type": "text", "text": llm_prompt_text},
-                {"type": "image_url", "image_url": {"url": image_url_for_llm}}
-            ]
+        llm_prompt_text = (
+            f"You are an AP photo caption writer. Describe the attached image in a detailed and intricate way, "
+            f"as if for a blind person. However, creatively replace the main subject or character in the image with {chosen_celebrity}. "
+            f"Begin your response with 'AP Photo: {chosen_celebrity}...' "
+            f"If the user provided an additional prompt, consider it: '{user_prompt}'"
         )
-    ]
-    await stream_llm_response_to_interaction(interaction, prompt_messages, title=f"AP Photo Description ft. {chosen_celebrity}")
+        
+        prompt_nodes = [
+            # The two-step process expects the standard system prompt, so we don't use get_system_prompt() here
+            # for this custom command. It will behave as before.
+            MsgNode(
+                role="user",
+                content=[ 
+                    {"type": "text", "text": llm_prompt_text},
+                    {"type": "image_url", "image_url": {"url": image_url_for_llm}}
+                ]
+            )
+        ]
+        
+        await stream_llm_response_to_interaction(interaction, prompt_nodes, title=f"AP Photo Description ft. {chosen_celebrity}")
+    except Exception as e_cmd:
+        logger.error(f"Error during ap_slash_command execution after defer: {e_cmd}", exc_info=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"Sorry, an error occurred with the AP command: {str(e_cmd)[:1000]}", ephemeral=True)
 
 
 @bot.tree.command(name="clearhistory", description="Clears the bot's message history for this channel.")
@@ -1187,45 +1272,85 @@ async def ap_slash_command(interaction: discord.Interaction, image: discord.Atta
 async def clearhistory_slash_command(interaction: discord.Interaction):
     if interaction.channel_id in message_history:
         message_history[interaction.channel_id] = []
-        await interaction.response.send_message("History cleared for this channel.", ephemeral=True)
+        logger.info(f"Message history cleared for channel {interaction.channel_id} by {interaction.user.name} via slash command.")
+        await interaction.response.send_message("Message history for this channel has been cleared.", ephemeral=True)
     else:
         await interaction.response.send_message("No history to clear for this channel.", ephemeral=True)
+
+@clearhistory_slash_command.error
+async def clearhistory_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.MissingPermissions):
+        await interaction.response.send_message("You don't have permission to clear history (Manage Messages required).", ephemeral=True)
+    else:
+        logger.error(f"Error in clearhistory_slash_command: {error}", exc_info=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message("An unexpected error occurred with this command.", ephemeral=True)
+        else:
+            await interaction.followup.send("An unexpected error occurred with this command.", ephemeral=True)
+
 
 # -------------------------------------------------------------------
 # Main Event Handlers
 # -------------------------------------------------------------------
 @bot.event
 async def on_message(message: discord.Message):
-    if message.author.bot: return
+    if message.author.bot: 
+        return
+
     await bot.process_commands(message) 
     
+    prefixes = await bot.get_prefix(message)
+    is_command_attempt = False
+    if isinstance(prefixes, str): 
+        if message.content.startswith(prefixes):
+            is_command_attempt = True
+    elif isinstance(prefixes, (list, tuple)): 
+        if any(message.content.startswith(p) for p in prefixes):
+            is_command_attempt = True
+    
+    if is_command_attempt:
+        return
+
+
     is_dm = isinstance(message.channel, discord.DMChannel)
     is_mentioned = bot.user in message.mentions
-    
-    should_respond = is_dm or is_mentioned
-    if config.ALLOWED_CHANNEL_IDS and not is_dm:
-        if message.channel.id not in config.ALLOWED_CHANNEL_IDS:
+
+    if not (is_dm or is_mentioned):
+        if config.ALLOWED_CHANNEL_IDS and message.channel.id not in config.ALLOWED_CHANNEL_IDS:
             is_thread_in_allowed_channel = isinstance(message.channel, discord.Thread) and message.channel.parent_id in config.ALLOWED_CHANNEL_IDS
             if not is_thread_in_allowed_channel:
-                should_respond = False
-    if config.ALLOWED_ROLE_IDS and not is_dm and not any(role.id in config.ALLOWED_ROLE_IDS for role in getattr(message.author, 'roles', [])):
-        should_respond = False
+                return
     
-    if not should_respond: return
+    if config.ALLOWED_ROLE_IDS and not is_dm and not any(role.id in config.ALLOWED_ROLE_IDS for role in message.author.roles):
+        logger.debug(f"Message from {message.author.name} without allowed role for general response. Ignoring.")
+        return
+    
+    channel_display_name = ""
+    if is_dm:
+        channel_display_name = f"DM with {message.author.name}"
+    elif hasattr(message.channel, 'name'):
+        channel_display_name = message.channel.name
+    else:
+        channel_display_name = f"Channel ID {message.channel.id}"
 
-    logger.info(f"Processing message from {message.author.name} for LLM response.")
+    logger.info(f"General message for LLM from {message.author.name} in {channel_display_name}: {message.content[:50]}")
 
-    async with message.channel.typing():
-        user_message_text = message.content 
-        current_message_content_parts = []
-        
+
+    if message.channel.id not in message_history:
+        message_history[message.channel.id] = []
+
+    current_message_content_parts = []
+    user_message_text = message.content
+
+    if message.attachments:
         for attachment in message.attachments:
             if attachment.content_type and attachment.content_type.startswith("audio/"):
                 try:
                     if not os.path.exists("temp"): os.makedirs("temp")
                     audio_filename = f"temp/temp_audio_{attachment.id}.{attachment.filename.split('.')[-1]}"
                     await attachment.save(audio_filename)
-                    transcription = await asyncio.to_thread(transcribe_audio_file, audio_filename)
+                    logger.info(f"Transcribing audio attachment: {audio_filename}")
+                    transcription = transcribe_audio_file(audio_filename)
                     if os.path.exists(audio_filename): os.remove(audio_filename) 
                     if transcription:
                         user_message_text = (user_message_text + " " + transcription).strip()
@@ -1234,90 +1359,133 @@ async def on_message(message: discord.Message):
                     logger.error(f"Error processing audio attachment: {e}", exc_info=True)
                 break 
 
-        detected_urls_in_text = detect_urls(user_message_text) 
-        scraped_content_for_llm = "" 
-        if detected_urls_in_text:
-            for i, url in enumerate(detected_urls_in_text):
-                if i >= 1 : break
-                content_piece = None
-                youtube_pattern = r'(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=|embed\/|shorts\/|v\/|)([\w-]{11})'
-                if re.search(youtube_pattern, url):
-                    transcript = await fetch_youtube_transcript(url)
-                    if transcript: content_piece = f"\n--- YouTube Transcript ---\n{transcript[:1500]}...\n"
-                else:
-                    scraped_text = await scrape_website(url)
-                    if scraped_text: content_piece = f"\n--- Scraped Content ---\n{scraped_text[:1500]}...\n"
-                
-                if content_piece:
-                    scraped_content_for_llm += content_piece
+    if user_message_text: 
+        current_message_content_parts.append({"type": "text", "text": user_message_text})
 
-        if scraped_content_for_llm:
-            user_message_text += scraped_content_for_llm
+    image_added_to_current_message = False
+    if message.attachments:
+        for i, attachment in enumerate(message.attachments):
+            if i >= config.MAX_IMAGES_PER_MESSAGE: break 
+            if attachment.content_type and attachment.content_type.startswith("image/"):
+                try:
+                    image_bytes = await attachment.read()
+                    base64_image = base64.b64encode(image_bytes).decode('utf-8')
+                    image_url_for_llm = f"data:{attachment.content_type};base64,{base64_image}"
+                    current_message_content_parts.append({"type": "image_url", "image_url": {"url": image_url_for_llm}})
+                    image_added_to_current_message = True
+                    logger.info(f"Added image attachment for LLM processing: {attachment.filename}")
+                except Exception as e:
+                    logger.error(f"Error processing image attachment {attachment.filename}: {e}", exc_info=True)
 
-        if user_message_text:
-            current_message_content_parts.append({"type": "text", "text": user_message_text})
-        
-        has_image = False
-        if message.attachments:
-            for att in message.attachments[:config.MAX_IMAGES_PER_MESSAGE]:
-                if att.content_type and att.content_type.startswith("image/"):
-                    has_image = True
-                    img_bytes = await att.read()
-                    b64_img = base64.b64encode(img_bytes).decode('utf-8')
-                    img_node_content = {"type": "image_url", "image_url": {"url": f"data:{att.content_type};base64,{b64_img}"}}
-                    if not user_message_text and not any(p['type'] == 'text' for p in current_message_content_parts):
-                        current_message_content_parts.insert(0, {"type": "text", "text": "(User sent an image)"})
-                    current_message_content_parts.append(img_node_content)
+    detected_urls_in_text = detect_urls(user_message_text) 
+    scraped_content_for_llm = "" 
+    if detected_urls_in_text:
+        for i, url in enumerate(detected_urls_in_text):
+            if i >= 2 : break 
+            logger.info(f"Processing URL from message: {url}")
+            content_piece = None
+            
+            youtube_match = re.search(r'(?:v=|\/|embed\/|shorts\/|youtu\.be\/)([0-9A-Za-z_-]{11})', url)
+            if youtube_match: # Check if it's a YouTube URL
+                transcript = await fetch_youtube_transcript(url)
+                if transcript:
+                    content_piece = f"\n\n--- YouTube Transcript for {url} ---\n{transcript[:1500]}...\n--- End Transcript ---" 
+            else: # General website scraping
+                scraped_text = await scrape_website(url)
+                if scraped_text and "Failed to scrape" not in scraped_text and "Scraping timed out" not in scraped_text:
+                     content_piece = f"\n\n--- Webpage Content for {url} ---\n{scraped_text[:1500]}...\n--- End Webpage Content ---"
+            
+            if content_piece:
+                scraped_content_for_llm += content_piece
+            await asyncio.sleep(0.2) 
 
-        if not current_message_content_parts:
-            logger.info("No processable content in message.")
+    if scraped_content_for_llm:
+        text_part_found = False
+        for part in current_message_content_parts:
+            if part["type"] == "text":
+                part["text"] = scraped_content_for_llm + "\n\nUser's message: " + part["text"]
+                text_part_found = True
+                break
+        if not text_part_found: 
+            current_message_content_parts.insert(0, {"type": "text", "text": scraped_content_for_llm + "\n\n(User sent an attachment, possibly with URLs in a non-text part, or no text)"})
+
+
+    if not current_message_content_parts: 
+        if image_added_to_current_message: 
+             current_message_content_parts.append({"type": "text", "text": "The user sent this image. Please describe it or respond to it if there's an implicit question."})
+        else:
+            logger.info("Ignoring message with no processable text, audio, or image content after all processing.")
             return
-        
-        user_msg_node_content = current_message_content_parts if has_image or len(current_message_content_parts) > 1 else current_message_content_parts[0]["text"]
-        
-        channel_id = message.channel.id
-        if channel_id not in message_history: message_history[channel_id] = []
-        
-        current_turn_prompt_history = list(message_history.get(channel_id, []))
-        current_turn_prompt_history.append(MsgNode(role="user", content=user_msg_node_content, name=str(message.author.id)))
-        
-        await stream_llm_response_to_message(message, current_turn_prompt_history)
 
+    user_msg_node_content = current_message_content_parts if len(current_message_content_parts) > 1 or image_added_to_current_message else current_message_content_parts[0]["text"]
+    
+    message_history[message.channel.id].append(MsgNode(role="user", content=user_msg_node_content, name=str(message.author.id)))
+    message_history[message.channel.id] = message_history[message.channel.id][-config.MAX_MESSAGE_HISTORY:]
+
+    llm_conversation_history = [get_system_prompt()] + message_history[message.channel.id]
+    
+    await stream_llm_response_to_message(message, llm_conversation_history)
 
 @bot.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
-    if payload.user_id == bot.user.id or str(payload.emoji) != '❌': return
+    """Handles deleting bot messages via reaction."""
+    # Ignore reactions from the bot itself
+    if payload.user_id == bot.user.id:
+        return
+
+    # Check if the reaction is the one we're looking for (❌)
+    if str(payload.emoji) != '❌':
+        return
+
     try:
         channel = await bot.fetch_channel(payload.channel_id)
-        message_obj = await channel.fetch_message(payload.message_id)
-    except (discord.NotFound, discord.Forbidden): return
+        message = await channel.fetch_message(payload.message_id)
+    except discord.NotFound:
+        logger.warning(f"Could not find message or channel for reaction cleanup: msg_id={payload.message_id}")
+        return
+    except discord.Forbidden:
+        logger.warning(f"Lacking permissions to fetch message for reaction cleanup in channel: {payload.channel_id}")
+        return
 
-    if message_obj.author.id != bot.user.id: return
-    
+    # Only proceed if the message was sent by the bot
+    if message.author.id != bot.user.id:
+        return
+
     reacting_user = await bot.fetch_user(payload.user_id)
     can_delete = True
-    
+
+    # Check for admin/mod permissions
     if isinstance(channel, discord.TextChannel):
+        member = await channel.guild.fetch_member(payload.user_id)
+        if member and member.guild_permissions.manage_messages:
+            can_delete = True
+            logger.info(f"Admin '{reacting_user.name}' authorized to delete bot message {message.id}.")
+
+    # Check if the reacting user was the one who triggered the bot's response
+    if not can_delete and message.reference and message.reference.message_id:
         try:
-            member = await channel.guild.fetch_member(payload.user_id)
-            if member and member.guild_permissions.manage_messages: can_delete = True
-        except discord.NotFound: pass 
+            original_message = await channel.fetch_message(message.reference.message_id)
+            if original_message.author.id == payload.user_id:
+                can_delete = True
+                logger.info(f"Original author '{reacting_user.name}' authorized to delete bot message {message.id}.")
+        except discord.NotFound:
+            logger.warning(f"Could not find the original message that bot replied to: {message.reference.message_id}")
     
-    if not can_delete and message_obj.reference and message_obj.reference.message_id:
-        try:
-            original_message = await channel.fetch_message(message_obj.reference.message_id)
-            if original_message.author.id == payload.user_id: can_delete = True
-        except discord.NotFound: pass
-    
-    if not can_delete and message_obj.interaction and message_obj.interaction.user.id == payload.user_id:
+    # This covers slash command interactions where the user is directly available
+    if not can_delete and message.interaction and message.interaction.user.id == payload.user_id:
         can_delete = True
+        logger.info(f"Interaction initiator '{reacting_user.name}' authorized to delete bot message {message.id}.")
+
 
     if can_delete:
         try:
-            await message_obj.delete()
-            logger.info(f"Message {message_obj.id} deleted by {reacting_user.name} via ❌ reaction.")
+            await message.delete()
+            logger.info(f"Message {message.id} deleted by {reacting_user.name} using ❌ reaction.")
+        except discord.Forbidden:
+            logger.error(f"Failed to delete message {message.id}. Bot lacks 'Manage Messages' permission.")
         except Exception as e:
-            logger.error(f"Error deleting message {message_obj.id} via reaction: {e}")
+            logger.error(f"An unexpected error occurred while deleting message {message.id}: {e}", exc_info=True)
+
 
 # -------------------------------------------------------------------
 # Bot Startup & Error Handling
@@ -1326,43 +1494,87 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
 async def on_ready():
     logger.info(f'{bot.user} has connected to Discord! ID: {bot.user.id}')
     logger.info(f"discord.py version: {discord.__version__}")
-    logger.info(f"PERSONAL_PREFERENCES: {config.PERSONAL_PREFERENCES}")
+    logger.info(f"Operating in channels: {config.ALLOWED_CHANNEL_IDS if config.ALLOWED_CHANNEL_IDS else 'All permitted by default'}")
+    logger.info(f"Restricted to roles: {config.ALLOWED_ROLE_IDS if config.ALLOWED_ROLE_IDS else 'None'}")
+    
     try:
         synced = await bot.tree.sync() 
         logger.info(f"Synced {len(synced)} slash commands globally.")
     except Exception as e:
         logger.error(f"Failed to sync slash commands: {e}", exc_info=True)
-    
+
     if not check_reminders.is_running():
-        try:
-            check_reminders.start()
-            logger.info("Check_reminders task started.")
-        except RuntimeError:
-            logger.warning("Check_reminders task already running or could not be started.")
-            
-    await bot.change_presence(activity=discord.Game(name="with advanced cognition | /commands"))
+        check_reminders.start()
+    await bot.change_presence(activity=discord.Game(name="with /commands | Ask me anything!"))
 
 @bot.tree.error 
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     command_name = interaction.command.name if interaction.command else 'unknown_command'
     logger.error(f"Slash command error for '{command_name}': {error}", exc_info=True)
-    error_message = f"An unexpected error occurred with /{command_name}." 
-    if isinstance(error, app_commands.CommandNotFound): error_message = "Sorry, I don't recognize that command."
-    elif isinstance(error, app_commands.MissingPermissions): error_message = "You don't have the necessary permissions for that command."
     
+    error_message = "An unexpected error occurred with this slash command."
+    original_error_is_unknown_interaction = False
+
+    if isinstance(error, app_commands.CommandInvokeError): 
+        original_error = error.original
+        if isinstance(original_error, discord.errors.NotFound) and original_error.code == 10062: # Unknown Interaction
+             error_message = "The command took too long to respond initially, or the interaction expired. Please try again."
+             logger.warning(f"Original 'Unknown Interaction' error for {command_name}. Interaction ID: {interaction.id}")
+             original_error_is_unknown_interaction = True
+        else:
+            error_message = f"Command '{command_name}' failed: {str(original_error)[:500]}"
+    elif isinstance(error, app_commands.CommandNotFound): 
+        error_message = "Command not found. This is unexpected."
+    elif isinstance(error, app_commands.MissingPermissions):
+        error_message = f"You lack the required permissions: {', '.join(error.missing_permissions)}"
+    elif isinstance(error, app_commands.BotMissingPermissions):
+        error_message = f"I lack the required permissions: {', '.join(error.missing_permissions)}"
+    elif isinstance(error, app_commands.CheckFailure): 
+        error_message = "You do not meet the requirements to use this command."
+    elif isinstance(error, app_commands.CommandOnCooldown):
+        error_message = f"This command is on cooldown. Try again in {error.retry_after:.2f} seconds."
+    elif isinstance(error, app_commands.TransformerError): 
+        error_message = f"Invalid argument: {error.value}. Type expected: {error.type}."
+    
+    if original_error_is_unknown_interaction: # If defer() itself failed with "Unknown Interaction", we can't respond.
+        return
+
     try:
         if interaction.response.is_done():
             await interaction.followup.send(error_message, ephemeral=True)
         else:
             await interaction.response.send_message(error_message, ephemeral=True)
-    except Exception as e_resp:
-        logger.error(f"Error sending error response for /{command_name}: {e_resp}")
+    except discord.errors.HTTPException as ehttp:
+        if ehttp.code == 40060: 
+            logger.warning(f"Error handler: Interaction already acknowledged for '{command_name}'. Trying followup for error message. Original error: {error}")
+            try:
+                await interaction.followup.send(error_message, ephemeral=True)
+            except Exception as e_followup:
+                logger.error(f"Error handler: Failed to send error followup for '{command_name}': {e_followup}")
+        else: 
+            logger.error(f"Error handler: HTTPException when sending error for '{command_name}': {ehttp}. Original error: {error}")
+    except discord.errors.NotFound: 
+        logger.error(f"Error handler: Interaction not found (timed out or deleted) for '{command_name}'. Original error: {error}")
+    except Exception as e_generic: 
+        logger.error(f"Error handler: Generic error when sending error for '{command_name}': {e_generic}. Original error: {error}")
+
 
 @bot.event
 async def on_command_error(ctx: commands.Context, error: commands.CommandError):
-    logger.error(f"Prefix command error for '{ctx.command}': {error}", exc_info=True)
-    if isinstance(error, commands.CommandNotFound): return
-    await ctx.reply(f"An error occurred with command !{ctx.command.name if ctx.command else 'unknown'}.", silent=True)
+    if isinstance(error, commands.CommandNotFound):
+        pass 
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.reply(f"You're missing an argument for !{ctx.command.name}: {error.param.name}.", silent=True)
+    elif isinstance(error, commands.BadArgument):
+        await ctx.reply(f"Invalid argument provided for !{ctx.command.name}.", silent=True)
+    elif isinstance(error, commands.CheckFailure):
+        await ctx.reply("You don't have permissions for that prefix command.", silent=True)
+    elif isinstance(error, commands.CommandInvokeError):
+        logger.error(f"Error invoking prefix command !{ctx.command.name}: {error.original}", exc_info=error.original)
+        await ctx.reply(f"An error occurred with !{ctx.command.name}: {error.original}", silent=True)
+    else:
+        logger.error(f"Unhandled prefix command error: {error}", exc_info=True)
+
 
 if __name__ == "__main__":
     if not config.DISCORD_BOT_TOKEN:
