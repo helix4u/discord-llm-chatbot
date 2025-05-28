@@ -135,15 +135,15 @@ def get_system_prompt_for_think_block() -> MsgNode:
 def get_system_prompt_for_final_response() -> MsgNode:
     """
     Returns the system prompt for the LLM to generate the final, clean response.
+    This prompt is now more forceful to prevent hallucinations and ensure adherence to the plan.
     """
     final_response_prompt = (
-        "You are Sam, a hyper-intelligence. You have been provided with a user's query, web search results, and a preceding `<think>...</think>` block "
-        "which contains your detailed internal monologue, context analysis, and plan. Your task now is to generate the final, "
-        "user-facing 'Action/Response:'.\n\n"
-        "You MUST use the insights, plan, and alignment from the `<think>...</think>` block, along with the provided search results, to craft your response.\n"
-        "DO NOT include the `<think>...</think>` block itself, or any of its section titles (e.g., 'Initial Reaction', 'Plan of Action') in your output.\n"
-        "Simply provide the clean, direct 'Action/Response:' to the user's original query, followed by an optional `Reflective Adjustment:` if you have further thoughts."
-        f"Current Date for reference: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}"
+        "You are Sam's final response generation module. "
+        "You will be given a complete 'Cognitive Synthesis' from a previous step. This synthesis includes web search results and a `<think>` block with a definitive 'Plan of Action'.\n\n"
+        "Your ONLY task is to EXECUTE the 'Plan of Action' from the `<think>` block and formulate the user-facing 'Action/Response:'.\n"
+        "You MUST NOT add any information, opinions, or requests for clarification that are not directly supported by the 'Plan of Action'.\n"
+        "DO NOT deviate from the plan. DO NOT use any external knowledge. The provided 'Cognitive Synthesis' is the absolute source of truth for your response.\n"
+        "Your output should ONLY be the `Action/Response:`, followed by an optional `Reflective Adjustment:` if the plan included it. Do not include any other text, headers, or the `<think>` block itself."
     )
     return MsgNode(role="system", content=final_response_prompt)
 
@@ -172,7 +172,6 @@ def detect_urls(message_text: str) -> list:
 
 def clean_text_for_tts(text: str) -> str:
     if not text: return ""
-    # This function is for cleaning the FINAL "Action/Response" for TTS.
     text = text.replace("Action/Response:", "").replace("Reflective Adjustment:", "")
     text = re.sub(r'[\*#_~\<\>\[\]\(\)]+', '', text)
     text = re.sub(r'http[s]?://\S+', '', text)
@@ -253,7 +252,7 @@ async def execute_cognitive_pipeline(
 
     if search_query:
         await update_pipeline_embed("Fetching results...", current_phase_title)
-        search_results_data = await query_searx(search_query) # Now fetches 10 results
+        search_results_data = await query_searx(search_query)
         if search_results_data:
             llm_snippets = [f"[{i+1}] Title: {r.get('title', 'N/A')}\nURL: {r.get('url', '#')}\nSnippet: {r.get('content', r.get('description', 'No snippet.'))}" for i, r in enumerate(search_results_data)]
             formatted_search_results_for_llm = "\n\n".join(llm_snippets)
@@ -274,7 +273,7 @@ async def execute_cognitive_pipeline(
     
     search_context_header = f"--- BEGIN WEB SEARCH RESULTS (Timestamp: {current_timestamp}) ---\n{formatted_search_results_for_llm}\n--- END WEB SEARCH RESULTS ---\n\nUser's original message (MUST use above search results to inform your <think> block):\n"
     
-    if isinstance(last_user_node.content, list):
+    if last_user_node and isinstance(last_user_node.content, list): # Check if last_user_node exists
         new_content_list = []
         text_part_found_for_think = False
         for part in last_user_node.content:
@@ -301,7 +300,13 @@ async def execute_cognitive_pipeline(
         )
         if think_response.choices and think_response.choices[0].message.content:
             generated_text = think_response.choices[0].message.content.strip()
-            think_block_content = f"<think>{generated_text}</think>" if not (generated_text.startswith("<think>") and generated_text.endswith("</think>")) else generated_text
+            # Ensure it's always wrapped, handling cases where the LLM might forget the outer tags
+            if not generated_text.startswith("<think>"):
+                generated_text = "<think>" + generated_text
+            if not generated_text.endswith("</think>"):
+                generated_text = generated_text + "</think>"
+            think_block_content = generated_text
+            
             display_think_block = think_block_content
             if len(display_think_block) > 1800: 
                 display_think_block = display_think_block[:1797] + "..."
@@ -317,27 +322,34 @@ async def execute_cognitive_pipeline(
     # Construct prompts for the final response generation
     final_response_prompts = [get_system_prompt_for_final_response()]
     
-    for msg_node in initial_prompt_messages:
-        if msg_node.role != "system":
-            final_response_prompts.append(msg_node)
-    
-    # **MODIFICATION**: Combine search results and think block for the final context.
-    final_context_for_llm = (
+    # Pass the original user query to give context to the plan execution
+    if last_user_node:
+        final_response_prompts.append(last_user_node)
+    else: # Fallback if somehow last_user_node is None (should not happen if initial_prompt_messages has user)
+        final_response_prompts.append(MsgNode(role="user", content="Please provide a response based on the synthesis."))
+
+
+    # The 'Cognitive Synthesis' includes search results and the detailed <think> block.
+    # The assistant then tees up the Action/Response for the model to complete.
+    cognitive_synthesis_and_prompt = (
+        f"---COGNITIVE SYNTHESIS (AUGMENTATION DATA)---\n"
         f"---RECAP OF WEB SEARCH RESULTS---\n{formatted_search_results_for_llm}\n---END RECAP---\n\n"
-        f"{think_block_content}"
+        f"{think_block_content}\n"
+        f"---END COGNITIVE SYNTHESIS---\n\n"
+        f"Based *solely* on the 'Plan of Action' detailed in the `<think>` block above, here is the response:\n"
+        f"Action/Response:"
     )
-    final_response_prompts.append(MsgNode(role="assistant", content=final_context_for_llm))
-    final_response_prompts.append(MsgNode(role="user", content="Based on the web search results and your internal monologue (<think> block), please provide your final Action/Response."))
+    final_response_prompts.append(MsgNode(role="assistant", content=cognitive_synthesis_and_prompt))
+    # No final user message is needed; the assistant message ending with "Action/Response:" prompts completion.
 
     final_stream = await llm_client.chat.completions.create(
         model=config.VISION_LLM_MODEL if is_vision_request else config.LLM_MODEL,
         messages=[p.to_dict() for p in final_response_prompts],
         max_tokens=config.MAX_COMPLETION_TOKENS,
-        stream=True, temperature=0.7
+        stream=True, temperature=0.7 # Temperature could be lowered if strict adherence is still an issue
     )
     
-    # Return the original think block for history, not the combined context
-    return final_stream, think_block_content
+    return final_stream, think_block_content # Return the original think_block for history logging
 
 
 async def stream_llm_response_to_interaction(
@@ -384,10 +396,25 @@ async def stream_llm_response_to_interaction(
             prompt_messages, pipeline_update_message, is_vision_request, title
         )
         
-        final_response_embed.description = ""
+        final_response_embed.description = "" # Clear for streaming
+
+        # Prepend "Action/Response:" if it's not already part of the stream's beginning
+        # This is important because the LLM is now completing `Action/Response: `
+        is_first_chunk = True
 
         async for chunk_data in final_stream:
             delta_content = chunk_data.choices[0].delta.content or ""
+            
+            if is_first_chunk and not delta_content.lstrip().startswith("Action/Response:"):
+                 # Check if full_final_response_text (if any from previous chunks) already starts with it
+                if not full_final_response_text.lstrip().startswith("Action/Response:"):
+                    # Add Action/Response prefix to the embed and internal tracking
+                    if not final_response_embed.description: # only add if description is empty
+                         final_response_embed.description = "Action/Response:\n"
+                    if not full_final_response_text: # only add if text is empty
+                        full_final_response_text = "Action/Response:\n"
+            is_first_chunk = False
+
             full_final_response_text += delta_content
             accumulated_chunk += delta_content
 
@@ -407,6 +434,13 @@ async def stream_llm_response_to_interaction(
         if accumulated_chunk:
              final_response_embed.description += accumulated_chunk
         
+        # Ensure "Action/Response:" is at the start of the final text if it was missed
+        if not full_final_response_text.lstrip().startswith("Action/Response:"):
+            full_final_response_text = "Action/Response:\n" + full_final_response_text.lstrip()
+            if final_response_embed.description and not final_response_embed.description.lstrip().startswith("Action/Response:"):
+                 final_response_embed.description = "Action/Response:\n" + final_response_embed.description.lstrip()
+
+
         final_response_embed.description = final_response_embed.description[:config.EMBED_MAX_LENGTH].strip() or "No valid response generated."
         final_response_embed.color = config.EMBED_COLOR["complete"]
         await final_response_message_to_edit.edit(embed=final_response_embed)
@@ -458,9 +492,20 @@ async def stream_llm_response_to_message(
         )
         
         final_response_embed.description = "" 
+        is_first_chunk = True
+
 
         async for chunk_data in final_stream:
             delta_content = chunk_data.choices[0].delta.content or ""
+
+            if is_first_chunk and not delta_content.lstrip().startswith("Action/Response:"):
+                if not full_final_response_text.lstrip().startswith("Action/Response:"):
+                    if not final_response_embed.description:
+                         final_response_embed.description = "Action/Response:\n"
+                    if not full_final_response_text:
+                        full_final_response_text = "Action/Response:\n"
+            is_first_chunk = False
+            
             full_final_response_text += delta_content
             accumulated_chunk += delta_content
 
@@ -479,6 +524,11 @@ async def stream_llm_response_to_message(
 
         if accumulated_chunk:
             final_response_embed.description += accumulated_chunk
+
+        if not full_final_response_text.lstrip().startswith("Action/Response:"):
+            full_final_response_text = "Action/Response:\n" + full_final_response_text.lstrip()
+            if final_response_embed.description and not final_response_embed.description.lstrip().startswith("Action/Response:"):
+                 final_response_embed.description = "Action/Response:\n" + final_response_embed.description.lstrip()
             
         final_response_embed.description = final_response_embed.description[:config.EMBED_MAX_LENGTH].strip() or "No valid response generated."
         final_response_embed.color = config.EMBED_COLOR["complete"]
@@ -544,8 +594,8 @@ async def send_tts_audio(destination: discord.abc.Messageable, text_to_speak: st
     speakable_text = ""
     if action_response_match:
         speakable_text = action_response_match.group(1).strip()
-    else:
-        logger.warning("Could not find 'Action/Response:' in text for TTS, attempting to clean full text.")
+    else: # If "Action/Response:" is missing, clean and speak the whole text
+        logger.warning("Could not find 'Action/Response:' in text for TTS, attempting to clean full text. This may indicate an issue in the LLM response structure.")
         speakable_text = text_to_speak
 
     cleaned_text = clean_text_for_tts(speakable_text) 
@@ -669,7 +719,6 @@ async def query_searx(query: str) -> list:
         async with aiohttp.ClientSession() as session:
             async with session.get(config.SEARX_URL, params=params, timeout=10) as response:
                 response.raise_for_status() 
-                # **MODIFICATION**: Changed from 3 to 10 results
                 return (await response.json()).get('results', [])[:10]
     except Exception as e: logger.error(f"Searx query failed for '{query}': {e}"); return []
 
