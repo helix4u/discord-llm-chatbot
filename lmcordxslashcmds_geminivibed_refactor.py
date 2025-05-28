@@ -17,6 +17,8 @@ from discord import app_commands # Import for slash commands
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
+from openai import AsyncStream
+
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 from pydub import AudioSegment
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
