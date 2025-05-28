@@ -386,20 +386,16 @@ async def stream_llm_response_to_interaction(
 
             current_time = asyncio.get_event_loop().time()
             
-            # **CORRECTED LOGIC** to respect EDITS_PER_SECOND
             if accumulated_chunk and (current_time - last_edit_time >= (1.0 / config.EDITS_PER_SECOND) or len(accumulated_chunk) > 150):
                 try:
-                    # Append only the new chunk to the description
                     response_embed.description += accumulated_chunk
                     
-                    # Truncate if it exceeds the max length
                     if len(response_embed.description) > config.EMBED_MAX_LENGTH:
-                        # This simple truncate might be imperfect for multi-embed, but works for single
                         response_embed.description = response_embed.description[:config.EMBED_MAX_LENGTH]
                     
                     await message_to_edit.edit(embed=response_embed)
                     last_edit_time = current_time
-                    accumulated_chunk = "" # Reset accumulator after successful edit
+                    accumulated_chunk = "" 
 
                 except discord.errors.NotFound:
                     logger.warning("Failed to edit message during stream, it might have been deleted.")
@@ -408,7 +404,6 @@ async def stream_llm_response_to_interaction(
                     logger.error(f"HTTPException during stream edit: {e}. Len: {len(response_embed.description)}")
                     await asyncio.sleep(0.5)
 
-        # Append any remaining part of the chunk
         if accumulated_chunk:
              response_embed.description += accumulated_chunk
 
@@ -472,19 +467,16 @@ async def stream_llm_response_to_message(
 
             current_time = asyncio.get_event_loop().time()
             
-            # **CORRECTED LOGIC** to respect EDITS_PER_SECOND
             if accumulated_chunk and (current_time - last_edit_time >= (1.0 / config.EDITS_PER_SECOND) or len(accumulated_chunk) > 150):
                 try:
-                    # Append only the new chunk to the description
                     response_embed.description += accumulated_chunk
 
-                    # Truncate if it exceeds the max length
                     if len(response_embed.description) > config.EMBED_MAX_LENGTH:
                         response_embed.description = response_embed.description[:config.EMBED_MAX_LENGTH]
 
                     await current_reply_message.edit(embed=response_embed)
                     last_edit_time = current_time
-                    accumulated_chunk = "" # Reset accumulator after successful edit
+                    accumulated_chunk = "" 
                     
                 except discord.errors.NotFound:
                     logger.warning("Failed to edit message during stream, it might have been deleted.")
@@ -493,7 +485,6 @@ async def stream_llm_response_to_message(
                     logger.error(f"HTTPException during stream edit: {e}. Len: {len(response_embed.description)}")
                     await asyncio.sleep(0.5) 
         
-        # Append any remaining part of the chunk
         if accumulated_chunk:
             response_embed.description += accumulated_chunk
             
@@ -1299,7 +1290,7 @@ async def clearhistory_error(interaction: discord.Interaction, error: app_comman
 
 
 # -------------------------------------------------------------------
-# Main Event Handler (on_message) - For general conversation
+# Main Event Handlers
 # -------------------------------------------------------------------
 @bot.event
 async def on_message(message: discord.Message):
@@ -1434,6 +1425,66 @@ async def on_message(message: discord.Message):
     llm_conversation_history = [get_system_prompt()] + message_history[message.channel.id]
     
     await stream_llm_response_to_message(message, llm_conversation_history)
+
+@bot.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    """Handles deleting bot messages via reaction."""
+    # Ignore reactions from the bot itself
+    if payload.user_id == bot.user.id:
+        return
+
+    # Check if the reaction is the one we're looking for (❌)
+    if str(payload.emoji) != '❌':
+        return
+
+    try:
+        channel = await bot.fetch_channel(payload.channel_id)
+        message = await channel.fetch_message(payload.message_id)
+    except discord.NotFound:
+        logger.warning(f"Could not find message or channel for reaction cleanup: msg_id={payload.message_id}")
+        return
+    except discord.Forbidden:
+        logger.warning(f"Lacking permissions to fetch message for reaction cleanup in channel: {payload.channel_id}")
+        return
+
+    # Only proceed if the message was sent by the bot
+    if message.author.id != bot.user.id:
+        return
+
+    reacting_user = await bot.fetch_user(payload.user_id)
+    can_delete = True
+
+    # Check for admin/mod permissions
+    if isinstance(channel, discord.TextChannel):
+        member = await channel.guild.fetch_member(payload.user_id)
+        if member and member.guild_permissions.manage_messages:
+            can_delete = True
+            logger.info(f"Admin '{reacting_user.name}' authorized to delete bot message {message.id}.")
+
+    # Check if the reacting user was the one who triggered the bot's response
+    if not can_delete and message.reference and message.reference.message_id:
+        try:
+            original_message = await channel.fetch_message(message.reference.message_id)
+            if original_message.author.id == payload.user_id:
+                can_delete = True
+                logger.info(f"Original author '{reacting_user.name}' authorized to delete bot message {message.id}.")
+        except discord.NotFound:
+            logger.warning(f"Could not find the original message that bot replied to: {message.reference.message_id}")
+    
+    # This covers slash command interactions where the user is directly available
+    if not can_delete and message.interaction and message.interaction.user.id == payload.user_id:
+        can_delete = True
+        logger.info(f"Interaction initiator '{reacting_user.name}' authorized to delete bot message {message.id}.")
+
+
+    if can_delete:
+        try:
+            await message.delete()
+            logger.info(f"Message {message.id} deleted by {reacting_user.name} using ❌ reaction.")
+        except discord.Forbidden:
+            logger.error(f"Failed to delete message {message.id}. Bot lacks 'Manage Messages' permission.")
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while deleting message {message.id}: {e}", exc_info=True)
 
 
 # -------------------------------------------------------------------
