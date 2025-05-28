@@ -345,10 +345,10 @@ async def stream_llm_response_to_interaction(
                 message_to_edit = await interaction.original_response()
                 original_interaction_message_id = message_to_edit.id
             except discord.NotFound:
-                 logger.error("Could not get original response after InteractionResponded error.")
-                 response_embed_fallback = discord.Embed(title=title, description="⏳ Thinking...", color=config.EMBED_COLOR["incomplete"])
-                 message_to_edit = await interaction.followup.send(embed=response_embed_fallback, wait=True)
-                 original_interaction_message_id = message_to_edit.id
+                logger.error("Could not get original response after InteractionResponded error.")
+                response_embed_fallback = discord.Embed(title=title, description="⏳ Thinking...", color=config.EMBED_COLOR["incomplete"])
+                message_to_edit = await interaction.followup.send(embed=response_embed_fallback, wait=True)
+                original_interaction_message_id = message_to_edit.id
 
 
     if not message_to_edit: 
@@ -484,7 +484,7 @@ async def stream_llm_response_to_message(
                 except discord.errors.HTTPException as e:
                     logger.error(f"HTTPException during stream edit: {e}. Len: {len(response_embed.description)}")
                     await asyncio.sleep(0.5) 
-        
+            
         if accumulated_chunk:
             response_embed.description += accumulated_chunk
             
@@ -541,51 +541,49 @@ async def tts_request(text: str, speed: float = 1.3) -> bytes | None:
 # Web Scraping and Search
 # -------------------------------------------------------------------
 # JavaScript for expanding "Show more" buttons safely
-# Adapted and improved to match the logic of x-scrape.py
+# UPDATED to directly check for "Grok" text within the parent article to avoid all Grok links.
 JS_EXPAND_SHOWMORE_TWITTER = """
 (maxClicks) => {
     let clicks = 0;
-
-    function isVisible(el) {
-        if (!el) return false;
-        return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-    }
-
-    function isSafeToClick(showMoreEl) {
-        // A "Show more" inside an embedded card (e.g., a link preview) is unsafe.
-        if (showMoreEl.closest('[data-testid="card.wrapper"]')) {
-            return false;
-        }
-        // A "Show more" inside a quoted/retweeted tweet component is unsafe.
-        if (showMoreEl.closest('[role="blockquote"]')) {
-            return false;
-        }
-        return true;
-    }
-
-    const articles = document.querySelectorAll('article[data-testid="tweet"]');
-    for (const article of articles) {
-        if (clicks >= maxClicks) break;
-        
-        // Find potential candidates using the efficient selector.
-        const candidates = Array.from(article.querySelectorAll('span, div[role="button"]'));
-        
-        for (const el of candidates) {
-            if (clicks >= maxClicks) break;
-            
-            // Use comprehensive text matching.
-            const text = (el.textContent || '').toLowerCase().trim();
-            if ((text === 'show more' || text === 'view more replies' || text === 'show additional replies' || text.includes('more repl') || text === 'show') && isVisible(el)) {
-                
-                if (isSafeToClick(el)) {
-                    try {
-                        el.click();
-                        clicks++;
-                    } catch (e) {
-                        // console.warn("Failed to click 'Show more' candidate:", e);
-                    }
-                }
+    const getButtons = () => Array.from(document.querySelectorAll('[role="button"]'))
+        .filter(b => {
+            const t = (b.textContent || '').toLowerCase();
+            // 1. Must be a "show more" button
+            if (!t.includes('show more')) {
+                return false;
             }
+
+            const article = b.closest('article');
+            if (!article) {
+                return false;
+            }
+
+            // 2. THE DEFINITIVE GROK CHECK:
+            // If the article's text content mentions "Grok", it is a summary card. IGNORE IT.
+            const articleText = article.textContent || '';
+            if (articleText.match(/grok/i)) {
+                return false;
+            }
+
+            // 3. Must NOT be inside a quoted tweet
+            if (b.closest('[role="blockquote"]')) {
+                return false;
+            }
+
+            return true;
+        });
+
+    while (clicks < maxClicks) {
+        const buttonsToClick = getButtons();
+        if (buttonsToClick.length === 0) {
+            break;
+        }
+        const button = buttonsToClick[0];
+        try {
+            button.click();
+            clicks++;
+        } catch (e) {
+            break;
         }
     }
     return clicks;
@@ -652,7 +650,7 @@ JS_EXTRACT_TWEETS_TWITTER = """
             }
             
             if (content || article.querySelector('[data-testid="tweetPhoto"], [data-testid="videoPlayer"]')) { 
-                 tweets.push({
+                tweets.push({
                     id: id || `no-id-${Date.now()}-${Math.random()}`, 
                     username: username, 
                     content: content,
@@ -729,7 +727,7 @@ async def scrape_website(url: str) -> str | None:
                     logger.warning(f"Error with selector {selector} on {url}: {e_sel}")
             
             if not content or len(content.strip()) < 100 : 
-                 content = await page.evaluate('document.body.innerText')
+                content = await page.evaluate('document.body.innerText')
             
             cleaned_content = re.sub(r'\s\s+', ' ', content.strip()) 
             return cleaned_content if cleaned_content else None
@@ -794,7 +792,7 @@ async def scrape_latest_tweets(username_queried: str, limit: int = 5) -> list:
                 context_manager = context
             
             page = await context_manager.new_page()
-            url = f"https://x.com/{username_queried.lstrip('@')}"
+            url = f"https://x.com/{username_queried.lstrip('@')}/with_replies"
             logger.info(f"Navigating to {url}")
             await page.goto(url, timeout=60000, wait_until="domcontentloaded") 
             
@@ -1125,7 +1123,7 @@ async def search_slash_command(interaction: discord.Interaction, query: str):
             title = r.get('title', 'N/A')
             res_url = r.get('url', 'N/A') 
             snippet_text = r.get('content', r.get('description', 'No snippet available.'))
-            search_snippets.append(f"{i+1}. **{discord.utils.escape_markdown(title)}** (<{res_url}>)\n   {discord.utils.escape_markdown(snippet_text[:250])}...")
+            search_snippets.append(f"{i+1}. **{discord.utils.escape_markdown(title)}** (<{res_url}>)\n    {discord.utils.escape_markdown(snippet_text[:250])}...")
 
         formatted_results = "\n\n".join(search_snippets)
         embed = discord.Embed(title=f"Top Search Results for: {query}", description=formatted_results[:config.EMBED_MAX_LENGTH], color=config.EMBED_COLOR["incomplete"])
@@ -1173,8 +1171,8 @@ async def pol_slash_command(interaction: discord.Interaction, statement: str):
 
 
 @bot.tree.command(name="gettweets", description="Fetches and summarizes recent tweets from a user.")
-@app_commands.describe(username="The X/Twitter username (without @).", limit="Number of tweets to fetch (max 15).")
-async def gettweets_slash_command(interaction: discord.Interaction, username: str, limit: app_commands.Range[int, 1, 150] = 50):
+@app_commands.describe(username="The X/Twitter username (without @).", limit="Number of tweets to fetch (max 50).")
+async def gettweets_slash_command(interaction: discord.Interaction, username: str, limit: app_commands.Range[int, 1, 50] = 10):
     logger.info(f"Gettweets command invoked by {interaction.user.name} for @{username}.")
     try:
         await interaction.response.defer(thinking=True, ephemeral=False)
