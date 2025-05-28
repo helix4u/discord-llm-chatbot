@@ -8,7 +8,7 @@ import os
 import random
 import re
 from datetime import datetime, timedelta
-from typing import Union, Optional 
+from typing import Union, Optional
 
 import aiohttp
 import discord
@@ -23,6 +23,9 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 from pydub import AudioSegment
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
 
+# ChromaDB for contextual memory
+import chromadb
+
 # -------------------------------------------------------------------
 # Configuration
 # -------------------------------------------------------------------
@@ -35,8 +38,8 @@ class Config:
             raise ValueError("DISCORD_BOT_TOKEN environment variable is missing")
 
         self.LOCAL_SERVER_URL = os.getenv("LOCAL_SERVER_URL", "http://localhost:1234/v1")
-        self.LLM_MODEL = os.getenv("LLM", "local-model") 
-        self.VISION_LLM_MODEL = os.getenv("VISION_LLM_MODEL", "llava") # Ensure this is a valid model name for your setup
+        self.LLM_MODEL = os.getenv("LLM", "local-model")
+        self.VISION_LLM_MODEL = os.getenv("VISION_LLM_MODEL", "llava")
 
         self.ALLOWED_CHANNEL_IDS = [int(i) for i in os.getenv("ALLOWED_CHANNEL_IDS", "").split(",") if i]
         self.ALLOWED_ROLE_IDS = [int(i) for i in os.getenv("ALLOWED_ROLE_IDS", "").split(",") if i]
@@ -52,10 +55,14 @@ class Config:
         self.SEARX_URL = os.getenv("SEARX_URL", "http://192.168.1.3:9092/search")
         self.SEARX_PREFERENCES = os.getenv("SEARX_PREFERENCES", "eJx1V8uy2zYM_Zp6o4mnaRadLrzqTLftTLvXQCQsISIJhg_bul9f0JIsyrpZRNcEQRA4AA4YBQl7DoTx0qPDAOaX3_50eI_yh5J8oiJ0CssvVgSmsagJTgZcn6HHC-TEJ8MKDF7QncpSsfUGE1565t7giawotj7wY7r8BSbiyWIaWF_--fvf_04RrhgRghouv57SgBYvkYqBU8CYTYotu1Y8ahN0y3HN1MommxuGC4Mszxz603ysjWkyi18KXcLQgqHeWfm9nAd9A4lJt8u9s_RHxjC15NpESQzMQnJXcpTEqgpszOoAReiMGEDXkxPs_uihb9saIQEMnIPYlBvohm17JYMFVvBjYykEDrVMPG_k28TEoVaW040hlx_NnUZq22dSIDzoJve9ctNR6rIaMS0KXdLU95sZpdSXJCdupJGfgsAxBrzWRkR21zcSqNutFib09VLlYAhriUb8EIxbmyOpstZ9o_GJGrGLO1UWF0Mz5G5xE-VG0m3LkvdQFCSG8q_n5lk0cnr--4LIghehfMtpy9_JF7A3C0nSMe38wzRZdgIhblpfH5Xhqw5cnFixugbEJvI13SFgoymgkpxMi8vXQG4kUJUBuSsxL_u9FA-s8SnW2GHo171nPzRRDWwg1NAvO97AVKogbt7UO5YlO7HKYu9Z6xr8AboA5bPcODxPLwtyUJ0lJz-Jc_xctlocSY0QK4cMyRVhagrCkaqNjy_LVqXLXUx4DnGt2w8zBVKVeWECUB7couC8XX9NAJshCwI6rlGxRweSFw0JIgpDVEiuez53hhQsNbjfl12uHPcgIfYU1-bxusP6iKcgLNlBFZhYP2u8rQdyJz2_OzL5tVd_3MGluiCfgqZwbNsuTBsFhJGFza6G7ytWccxddikv65g9hhxfIMzcVSqsKZ9XeYKFkgd8qQl2idRnVSfXhuQLOVfuJR4nThwHHkta1oiFbUlLHwQp9gq7CYZS-hVfFME-ujt1U60io-IBTofSt5u00FvHPMZ34ZutkX5kTviuFTkHdZAKpJHSdBDz9Bb112_ffn9sYems0W18EfHDga31hXoQx1ri4FZyswlC7qYe7Vr7HjGkXCrr1W7PQSFXjIV079hVWyHbztS6d37QyE6qromTYzfZis_id3_298rhEqQVCq79kd687WL20ntmLqOfiI8sLKW1tfOM-ZDTxm8vQydpw92IXOZgQ7sESwFSzaWdFIYC6zeGKKEsJF_FQq5_Xx-dfUp35fOUzJhW2BZOKJWC1VkZdFLqatqPuhtJM4nPlWLxrxDRTvE1xz6XNncseQ9bwq5CVmPYDxWqeVjmyjY3-4XWN9vLmDhAsMh3ICyyAwxkdbd59J2EArblSvt8FbpxvTy_9mXh-tsOAksPZTjrLYKCckwyXJOM73WG-0G4xq2rmRoPQczig78yADSlw7MroidYy_qlLLUqlbX3KN0plffhu4XsoszbOFQuTJzfmvcleT18gIw8NcrEqdRuZJHrPqaxaDzH5Ktb2cy87YfqKaNJpQ92uzRbaXsrj5EmBXDRyFjStZmgHY2VIKVwppUWtlerN1l6Ml4KSI_zsjoPHJOwHMrTWqKfB8ROgaGdX973IC_iw7YMh1YNqMbDjmDQSp5HnOKLFn7iQ0F9XhysLCkVdNX8n5ZJ3u9GHmefaJqrPOSvfPQxQHmCtvKKlThsGbknGXhSmJf_AWSO7BY=&q=%s")
 
-
         self.EMBED_COLOR = {"incomplete": discord.Color.orange(), "complete": discord.Color.green(), "error": discord.Color.red()}
         self.EMBED_MAX_LENGTH = 4096 
         self.EDITS_PER_SECOND = 1.3 
+
+        # ChromaDB Configuration
+        self.CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_db")
+        self.CHROMA_COLLECTION_NAME = os.getenv("CHROMA_COLLECTION_NAME", "chat_history")
+
 
 config = Config()
 
@@ -68,6 +75,18 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
+# -------------------------------------------------------------------
+# ChromaDB Client Initialization
+# -------------------------------------------------------------------
+try:
+    chroma_client = chromadb.PersistentClient(path=config.CHROMA_DB_PATH)
+    chat_history_collection = chroma_client.get_or_create_collection(name=config.CHROMA_COLLECTION_NAME)
+    logger.info(f"ChromaDB initialized. Path: {config.CHROMA_DB_PATH}, Collection: {config.CHROMA_COLLECTION_NAME}")
+except Exception as e:
+    logger.critical(f"Failed to initialize ChromaDB: {e}", exc_info=True)
+    chroma_client = None
+    chat_history_collection = None
 
 # -------------------------------------------------------------------
 # Bot Initialization
@@ -115,7 +134,7 @@ def get_system_prompt() -> MsgNode:
             "You are Sam, a hyper-intelligence designed to learn and evolve. Provide helpful, detailed, and rational answers. "
             "Consider the context, make a plan, and evaluate for logical failings before responding. "
             "Conclude reflections with a thought-provoking question or idea when it may sound natural. "
-            "If you need to 'think' before responding, use <think>Your thoughts here...</think> tags. Don't use emojis unless asked." 
+            "If you need to 'think' before responding, use <think>Your thoughts here...</think> tags. Do NOT use emojis." 
             f"Current Date: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}"
         )
     )
@@ -162,7 +181,6 @@ async def _send_audio_segment(destination: Union[discord.abc.Messageable, discor
         logger.info(f"Skipping TTS for empty/cleaned {filename_suffix} segment.")
         return
 
-    # logger.info(f"Requesting TTS for {filename_suffix}: {cleaned_segment[:100]}...") # Optional: more verbose logging
     tts_audio_data = await tts_request(cleaned_segment)
     
     actual_destination_channel: Optional[discord.abc.Messageable] = None
@@ -170,7 +188,7 @@ async def _send_audio_segment(destination: Union[discord.abc.Messageable, discor
         actual_destination_channel = destination.channel
     elif isinstance(destination, discord.Message):
         actual_destination_channel = destination.channel
-    elif isinstance(destination, discord.abc.Messageable): # Covers TextChannel, DMChannel, Thread, etc.
+    elif isinstance(destination, discord.abc.Messageable):
         actual_destination_channel = destination
     
     if not actual_destination_channel:
@@ -222,6 +240,64 @@ async def send_tts_audio(destination: Union[discord.abc.Messageable, discord.Int
     else:
         logger.info("No <think> tags found. Processing full text for TTS.")
         await _send_audio_segment(destination, text_to_speak, "full", is_thought=False, base_filename=base_filename)
+
+# -------------------------------------------------------------------
+# ChromaDB and Context Management
+# -------------------------------------------------------------------
+
+def get_context_from_chromadb(query: str, n_results: int = 1) -> list:
+    """Queries ChromaDB for conversations similar to the given query."""
+    if not chat_history_collection:
+        logger.warning("ChromaDB not available, skipping context retrieval.")
+        return []
+    try:
+        results = chat_history_collection.query(
+            query_texts=[query],
+            n_results=n_results
+        )
+        return results['documents'][0] if results and results['documents'] else []
+    except Exception as e:
+        logger.error(f"Failed to query ChromaDB: {e}", exc_info=True)
+        return []
+
+def ingest_conversation_to_chromadb(channel_id: int, user_id: int, conversation_history: list[MsgNode]):
+    """Ingests a completed conversation into ChromaDB."""
+    if not chat_history_collection:
+        logger.warning("ChromaDB not available, skipping ingestion.")
+        return
+
+    # Don't ingest if the history is too short or just the system prompt
+    if len(conversation_history) < 2:
+        return
+
+    try:
+        # Combine messages into a single document
+        full_conversation_text = "\n".join(
+            [f"{msg.role}: {msg.content}" for msg in conversation_history if isinstance(msg.content, str)]
+        )
+        
+        if not full_conversation_text.strip():
+            logger.info("Skipping ingestion of empty conversation text.")
+            return
+
+        # Use a unique ID based on channel, user, and timestamp
+        doc_id = f"channel_{channel_id}_user_{user_id}_{int(datetime.now().timestamp())}"
+        
+        metadata = {
+            "channel_id": str(channel_id),
+            "user_id": str(user_id),
+            "timestamp": datetime.now().isoformat()
+        }
+
+        chat_history_collection.add(
+            documents=[full_conversation_text],
+            metadatas=[metadata],
+            ids=[doc_id]
+        )
+        logger.info(f"Ingested conversation into ChromaDB with ID: {doc_id}")
+    except Exception as e:
+        logger.error(f"Failed to ingest conversation into ChromaDB: {e}", exc_info=True)
+
 
 # -------------------------------------------------------------------
 # Core LLM Interaction Logic
@@ -290,7 +366,7 @@ async def get_context_aware_llm_stream(prompt_messages: list[MsgNode], is_vision
 
     injected_prompt_text = (
         f"<model_generated_suggested_context>\n{generated_context}\n</model_generated_suggested_context>\n\n"
-        f"<user_question>\nWith that context in mind, please respond to the following:\n{original_question}\n</user_question>"
+        f"<user_question>\nWith that context in mind, please respond to the following:\n{original_question}\n Do not use emojis. </user_question>"
     )
 
     if isinstance(final_user_message_node.content, str):
@@ -340,7 +416,6 @@ async def _stream_llm_handler(
     if initial_message_to_edit:
         current_initial_message = initial_message_to_edit
     else:
-        # This path is for when we need to start a new followup chain for the stream
         placeholder_embed = discord.Embed(title=title, description="⏳ Generating context...", color=config.EMBED_COLOR["incomplete"])
         try:
             current_initial_message = await interaction.followup.send(embed=placeholder_embed, wait=True)
@@ -369,7 +444,6 @@ async def _stream_llm_handler(
         last_edit_time = asyncio.get_event_loop().time()
         accumulated_delta_for_update = "" 
 
-        # Edit the first message to show context (if it's not a newly created followup which already has a placeholder)
         if initial_message_to_edit and current_initial_message: 
             initial_context_embed = discord.Embed(title=title, description=response_prefix + "⏳ Thinking...", color=config.EMBED_COLOR["incomplete"])
             try:
@@ -512,6 +586,15 @@ async def stream_llm_response_to_interaction(
     if full_response_content:
         channel_id = interaction.channel_id
         if channel_id not in message_history: message_history[channel_id] = []
+        
+        # Create a new list for this specific interaction to be ingested
+        completed_interaction_history = list(prompt_messages)
+        completed_interaction_history.append(MsgNode(role="assistant", content=full_response_content, name=str(bot.user.id)))
+        
+        # Ingest the completed interaction to ChromaDB
+        ingest_conversation_to_chromadb(channel_id, interaction.user.id, completed_interaction_history)
+
+        # Update short-term memory
         message_history[channel_id].append(MsgNode(role="assistant", content=full_response_content, name=str(bot.user.id)))
         message_history[channel_id] = message_history[channel_id][-config.MAX_MESSAGE_HISTORY:]
         
@@ -619,6 +702,15 @@ async def stream_llm_response_to_message(
     if full_response_content:
         channel_id = target_message.channel.id
         if channel_id not in message_history: message_history[channel_id] = []
+        
+        # Create a new list for this specific interaction to be ingested
+        completed_interaction_history = list(prompt_messages)
+        completed_interaction_history.append(MsgNode(role="assistant", content=full_response_content, name=str(bot.user.id)))
+
+        # Ingest the completed interaction to ChromaDB
+        ingest_conversation_to_chromadb(channel_id, target_message.author.id, completed_interaction_history)
+
+        # Update short-term memory
         message_history[channel_id].append(MsgNode(role="assistant", content=full_response_content, name=str(bot.user.id)))
         message_history[channel_id] = message_history[channel_id][-config.MAX_MESSAGE_HISTORY:]
         await send_tts_audio(target_message, full_response_content, base_filename=f"message_{target_message.id}")
@@ -724,9 +816,9 @@ async def scrape_website(url: str) -> str | None:
             if profile_dir_usable:
                 context = await p.chromium.launch_persistent_context(user_data_dir, headless=False, args=["--disable-blink-features=AutomationControlled", "--no-sandbox"], user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
             else: 
-                 logger.warning("Using non-persistent context for scrape_website.")
-                 browser_instance_sw = await p.chromium.launch(headless=False, args=["--disable-blink-features=AutomationControlled", "--no-sandbox"])
-                 context = await browser_instance_sw.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36", java_script_enabled=True, ignore_https_errors=True)
+                logger.warning("Using non-persistent context for scrape_website.")
+                browser_instance_sw = await p.chromium.launch(headless=False, args=["--disable-blink-features=AutomationControlled", "--no-sandbox"])
+                context = await browser_instance_sw.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36", java_script_enabled=True, ignore_https_errors=True)
             context_manager = context
             page = await context_manager.new_page()
             await page.goto(url, wait_until='domcontentloaded', timeout=25000) 
@@ -832,8 +924,8 @@ async def scrape_latest_tweets(username_queried: str, limit: int = 10) -> list:
             try: 
                 await context_manager.close()
             except Exception as e_ctx_final:
-                 if "Target page, context or browser has been closed" not in str(e_ctx_final):
-                     logger.error(f"Error closing context (final attempt) for @{username_queried}: {e_ctx_final}", exc_info=False)
+                if "Target page, context or browser has been closed" not in str(e_ctx_final):
+                    logger.error(f"Error closing context (final attempt) for @{username_queried}: {e_ctx_final}", exc_info=False)
         if browser_instance_st: 
             try: 
                 await browser_instance_st.close()
@@ -932,8 +1024,104 @@ def parse_time_string_to_delta(time_str: str) -> tuple[Optional[timedelta], Opti
     return time_delta, descriptive_str
 
 # -------------------------------------------------------------------
+# ChatGPT Ingestion Functions
+# -------------------------------------------------------------------
+def parse_chatgpt_export(json_file_path: str):
+    """
+    Parses a ChatGPT conversations.json file and extracts all conversations.
+    """
+    try:
+        with open(json_file_path, 'r', encoding='utf-8') as f:
+            conversations_data = json.load(f)
+    except FileNotFoundError:
+        logger.error(f"ChatGPT export file not found: {json_file_path}")
+        return []
+    except json.JSONDecodeError:
+        logger.error(f"Invalid JSON in ChatGPT export file: {json_file_path}")
+        return []
+
+    extracted_conversations = []
+    for convo in conversations_data:
+        title = convo.get('title', 'Untitled')
+        create_time = datetime.fromtimestamp(convo.get('create_time', 0))
+        messages = []
+        current_node_id = convo.get('current_node')
+        mapping = convo.get('mapping', {})
+
+        while current_node_id:
+            node = mapping.get(current_node_id)
+            if not node: break
+            message_data = node.get('message')
+            if message_data and message_data.get('content') and message_data['content']['content_type'] == 'text':
+                author_role = message_data['author']['role']
+                text_content = "".join(message_data['content']['parts'])
+                if text_content and author_role in ['user', 'assistant']:
+                    messages.append({'role': author_role, 'content': text_content})
+            current_node_id = node.get('parent')
+        
+        messages.reverse()
+        if messages:
+            extracted_conversations.append({'title': title, 'create_time': create_time, 'messages': messages})
+    return extracted_conversations
+
+def store_conversations_in_chromadb(conversations: list, source: str = "chatgpt_export"):
+    """Stores a list of parsed conversations in ChromaDB."""
+    if not chat_history_collection:
+        logger.error("Cannot store conversations, ChromaDB not available.")
+        return 0
+    
+    documents, metadatas, ids = [], [], []
+    for i, convo in enumerate(conversations):
+        full_conversation_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in convo['messages']])
+        if not full_conversation_text.strip(): continue
+
+        documents.append(full_conversation_text)
+        metadatas.append({
+            "title": convo['title'],
+            "source": source,
+            "create_time": convo['create_time'].isoformat()
+        })
+        ids.append(f"{source}_{convo.get('title', 'untitled').replace(' ', '_')}_{i}_{int(convo['create_time'].timestamp())}")
+
+    if documents:
+        try:
+            chat_history_collection.add(documents=documents, metadatas=metadatas, ids=ids)
+            logger.info(f"Successfully added {len(documents)} conversations from {source} to ChromaDB.")
+            return len(documents)
+        except Exception as e:
+            logger.error(f"Error adding documents to ChromaDB: {e}", exc_info=True)
+    return 0
+    
+# -------------------------------------------------------------------
 # Slash Commands (Application Commands)
 # -------------------------------------------------------------------
+
+@bot.tree.command(name="ingest_chatgpt_export", description="Ingests a conversations.json file from a ChatGPT export.")
+@app_commands.describe(file_path="The full local path to your conversations.json file.")
+@app_commands.checks.has_permissions(manage_messages=True)
+async def ingest_chatgpt_export_command(interaction: discord.Interaction, file_path: str):
+    await interaction.response.defer(ephemeral=True)
+    logger.info(f"Ingestion of '{file_path}' initiated by {interaction.user.name}.")
+    
+    if not os.path.exists(file_path):
+        await interaction.followup.send(f"Error: File not found at the specified path: `{file_path}`")
+        return
+
+    parsed_conversations = parse_chatgpt_export(file_path)
+    if not parsed_conversations:
+        await interaction.followup.send("Could not parse any valid conversations from the file.")
+        return
+        
+    count = store_conversations_in_chromadb(parsed_conversations)
+    await interaction.followup.send(f"Successfully ingested {count} conversations from the export file into ChromaDB.")
+
+@ingest_chatgpt_export_command.error
+async def ingest_export_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+     if isinstance(error, app_commands.MissingPermissions):
+        await interaction.response.send_message("You need 'Manage Messages' permission to run this command.", ephemeral=True)
+     else:
+        logger.error(f"Error in ingest_chatgpt_export command: {error}", exc_info=True)
+        await interaction.followup.send(f"An unexpected error occurred: {error}", ephemeral=True)
 
 @bot.tree.command(name="remindme", description="Sets a reminder. E.g., 1h30m Check the oven.")
 @app_commands.describe(time_duration="Duration (e.g., '10m', '2h30m', '1d').", reminder_message="The message for your reminder.")
@@ -1177,7 +1365,7 @@ async def on_message(message: discord.Message):
             else: 
                 scraped_text = await scrape_website(url)
                 if scraped_text and "Failed to scrape" not in scraped_text and "Scraping timed out" not in scraped_text:
-                     content_piece = f"\n\n--- Webpage Content for {url} ---\n{scraped_text}\n--- End Webpage Content ---" 
+                    content_piece = f"\n\n--- Webpage Content for {url} ---\n{scraped_text}\n--- End Webpage Content ---" 
             if content_piece: scraped_content_for_llm += content_piece
             await asyncio.sleep(0.2) 
 
@@ -1198,9 +1386,32 @@ async def on_message(message: discord.Message):
             return
 
     user_msg_node_content = current_message_content_parts if len(current_message_content_parts) > 1 or image_added else current_message_content_parts[0]["text"]
+    
+    # --- CONTEXT RETRIEVAL FROM CHROMADB ---
+    llm_conversation_history = [get_system_prompt()]
+    
+    # Query ChromaDB for relevant historical context
+    chroma_query = user_message_text if user_message_text else "User sent an image"
+    retrieved_docs = get_context_from_chromadb(chroma_query, n_results=1)
+    
+    if retrieved_docs:
+        context_text = "The following is a past conversation that might be relevant to the user's current query. Use it to provide a more informed response.\n\n--- Relevant Past Conversation ---\n" + retrieved_docs[0] + "\n--- End Past Conversation ---"
+        llm_conversation_history.insert(1, MsgNode(role="system", content=context_text)) # Insert after main system prompt
+        logger.info("Added relevant context from ChromaDB to the prompt.")
+
+    # Add short-term (last N messages) history
+    llm_conversation_history.extend(message_history[channel_id])
+    
+    # Add the current user message
+    llm_conversation_history.append(MsgNode("user", user_msg_node_content, str(message.author.id)))
+    
+    # Trim history to keep it manageable if it's too long
+    llm_conversation_history = llm_conversation_history[-(config.MAX_MESSAGE_HISTORY + 2):] # +2 for system prompts
+    
+    # Update short-term memory with the current message
     message_history[channel_id].append(MsgNode("user", user_msg_node_content, str(message.author.id)))
     message_history[channel_id] = message_history[channel_id][-config.MAX_MESSAGE_HISTORY:]
-    llm_conversation_history = [get_system_prompt()] + message_history[channel_id]
+
     await stream_llm_response_to_message(message, llm_conversation_history)
 
 
@@ -1212,18 +1423,22 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
         message = await channel.fetch_message(payload.message_id)
     except (discord.NotFound, discord.Forbidden): return
     if message.author.id != bot.user.id: return
-    can_delete = True
+    can_delete = False # Changed default to False
     if isinstance(channel, discord.TextChannel): # Guild channel
         try:
             member = await channel.guild.fetch_member(payload.user_id)
             if member and member.guild_permissions.manage_messages: can_delete = True
         except discord.HTTPException: pass # Failed to fetch member, proceed
-    if not can_delete and message.interaction and message.interaction.user.id == payload.user_id: can_delete = True
-    if not can_delete and message.reference and message.reference.message_id:
-        try:
-            original_message = await channel.fetch_message(message.reference.message_id)
-            if original_message.author.id == payload.user_id: can_delete = True
-        except discord.NotFound: pass # Original message might be deleted
+    
+    # Allow original interactor or replier to delete
+    if not can_delete:
+        if message.interaction and message.interaction.user.id == payload.user_id: can_delete = True
+        elif message.reference and message.reference.message_id:
+            try:
+                original_message = await channel.fetch_message(message.reference.message_id)
+                if original_message.author.id == payload.user_id: can_delete = True
+            except discord.NotFound: pass 
+
     if can_delete:
         try: 
             await message.delete()
@@ -1253,9 +1468,9 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
     if isinstance(error, app_commands.CommandInvokeError): 
         original_error = error.original
         if isinstance(original_error, discord.errors.NotFound) and original_error.code == 10062:
-             error_message = "The command took too long to respond initially, or the interaction expired. Please try again."
-             logger.warning(f"Original 'Unknown Interaction' (10062) for {command_name}. Interaction ID: {interaction.id}")
-             original_error_is_unknown_interaction = True
+            error_message = "The command took too long to respond initially, or the interaction expired. Please try again."
+            logger.warning(f"Original 'Unknown Interaction' (10062) for {command_name}. Interaction ID: {interaction.id}")
+            original_error_is_unknown_interaction = True
         else: error_message = f"Command '{command_name}' failed: {str(original_error)[:500]}"
     elif isinstance(error, app_commands.CommandNotFound): error_message = "Command not found. This is unexpected."
     elif isinstance(error, app_commands.MissingPermissions): error_message = f"You lack permissions: {', '.join(error.missing_permissions)}"
@@ -1296,6 +1511,8 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
 if __name__ == "__main__":
     if not config.DISCORD_BOT_TOKEN:
         logger.critical("DISCORD_BOT_TOKEN is not set. Bot cannot start.")
+    elif not chroma_client or not chat_history_collection:
+        logger.critical("ChromaDB failed to initialize. Bot cannot start.")
     else:
         try:
             bot.run(config.DISCORD_BOT_TOKEN, log_handler=None) 
@@ -1303,4 +1520,3 @@ if __name__ == "__main__":
             logger.critical("Failed to log in with the provided Discord token. Please check it.")
         except Exception as e:
             logger.critical(f"An unexpected error occurred during bot startup: {e}", exc_info=True)
-
