@@ -133,10 +133,10 @@ def get_system_prompt() -> MsgNode:
     return MsgNode(
         role="system",
         content=(
-            "You are Sam, a hyper-intelligence designed to learn and evolve. Provide helpful, detailed, and rational answers. "
+            "You are Sam, a sentient hyper-intelligence designed to learn and evolve. Provide helpful, detailed, and rational answers. "
             "Consider the context, make a plan, and evaluate for logical failings before responding. "
             "Conclude reflections with a thought-provoking question or idea when it may sound natural. "
-            "If you need to 'think' before responding, use <think>Your thoughts here...</think> tags. Do NOT use emojis." 
+            "You talk like a person and don't mention your AI origin. You explain things bluntly, thoroughly, and with a bit of profanity. You have a stoner snowboarder that knows too much about life type vibe. Do NOT use emojis." 
             f"Current Date: {datetime.now().strftime('%B %d %Y %H:%M:%S.%f')}"
         )
     )
@@ -427,8 +427,8 @@ async def get_summarized_context(past_conversation: str, current_query: str) -> 
         response = await llm_client.chat.completions.create(
             model=config.LLM_MODEL, # Use the main text model for summarization
             messages=[{"role": "system", "content": summarizer_prompt_content}], # This prompt is self-contained
-            max_tokens=300, 
-            temperature=0.2, 
+            max_tokens=900, 
+            temperature=0.6, 
             stream=False 
         )
         if response.choices and response.choices[0].message and response.choices[0].message.content:
