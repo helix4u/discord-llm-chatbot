@@ -45,7 +45,7 @@ class Config:
         self.ALLOWED_ROLE_IDS = [int(i) for i in os.getenv("ALLOWED_ROLE_IDS", "").split(",") if i]
         
         self.MAX_IMAGES_PER_MESSAGE = int(os.getenv("MAX_IMAGES_PER_MESSAGE", 1))
-        self.MAX_MESSAGE_HISTORY = int(os.getenv("MAX_MESSAGE_HISTORY", 10))
+        self.MAX_MESSAGE_HISTORY = int(os.getenv("MAX_MESSAGE_HISTORY", 10)) # Max number of past user/assistant messages in short-term history
         self.MAX_COMPLETION_TOKENS = int(os.getenv("MAX_COMPLETION_TOKENS", 2048))
         
         self.TTS_API_URL = os.getenv("TTS_API_URL", "http://localhost:8880/v1/audio/speech")
@@ -62,6 +62,9 @@ class Config:
         # ChromaDB Configuration
         self.CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_db")
         self.CHROMA_COLLECTION_NAME = os.getenv("CHROMA_COLLECTION_NAME", "chat_history")
+        
+        # User-Provided Context
+        self.USER_PROVIDED_CONTEXT = os.getenv("USER_PROVIDED_CONTEXT", "") # User-defined context to be injected
 
 config = Config()
 
@@ -138,6 +141,97 @@ def get_system_prompt() -> MsgNode:
         )
     )
 
+def _build_initial_prompt_messages(
+    user_query_content: Union[str, List[dict]],
+    user_id: Optional[str] = None,
+    channel_id: Optional[int] = None,
+    summarized_chroma_context_str: Optional[str] = None
+) -> List[MsgNode]:
+    """
+    Constructs the initial list of MsgNode objects for the LLM prompt.
+    Includes main system prompt, user-provided global context, ChromaDB summary,
+    short-term message history, and the current user query.
+    Manages history trimming.
+    """
+    prompt_list: List[MsgNode] = []
+
+    # 1. Add the main system prompt
+    prompt_list.append(get_system_prompt())
+
+    # 2. Add User-Provided Global Context (if any)
+    if config.USER_PROVIDED_CONTEXT:
+        prompt_list.append(MsgNode(role="system", content=f"User-Set Global Context:\n{config.USER_PROVIDED_CONTEXT}"))
+        # logger.info("Added User-Provided Context to LLM prompt structure.") # Logged when used
+
+    # 3. Add Summarized ChromaDB Context (if any)
+    if summarized_chroma_context_str:
+        context_text_for_prompt = (
+            "The following is a summary of a relevant past conversation. "
+            "Use it to provide a more informed response.\n\n"
+            "--- Relevant Retrieved Context Summary ---\n" 
+            + summarized_chroma_context_str +
+            "\n--- End Summary ---"
+        )
+        prompt_list.append(MsgNode(role="system", content=context_text_for_prompt))
+        # logger.info("Added LLM-summarized context from ChromaDB to prompt structure.") # Logged when used
+    
+    # 4. Add short-term message history (from previous turns in the channel)
+    # This history should already be trimmed to config.MAX_MESSAGE_HISTORY by the calling function
+    # or by how message_history[channel_id] is maintained.
+    history_to_add: List[MsgNode] = []
+    if channel_id and channel_id in message_history:
+        history_to_add = message_history[channel_id] # This is already trimmed
+    
+    # 5. Add the current user's message
+    current_user_msg = MsgNode("user", user_query_content, name=str(user_id) if user_id else None)
+
+    # Combine system prompts, trimmed history, and current user message
+    # System prompts are already at the beginning of prompt_list.
+    # We need to ensure the conversational part (history_to_add + current_user_msg) is correctly appended and trimmed if necessary.
+    
+    # The number of actual conversational turns to keep is config.MAX_MESSAGE_HISTORY.
+    # This includes previous user/assistant pairs.
+    # The current user message is one part of a new turn.
+    
+    # Concatenate all parts: system prompts, then historical conversation, then current user message.
+    # System prompts are already in prompt_list.
+    
+    # `history_to_add` should contain pairs of user/assistant messages.
+    # We want to ensure that the total number of these historical messages
+    # doesn't exceed config.MAX_MESSAGE_HISTORY. Since message_history[channel_id]
+    # is already trimmed to MAX_MESSAGE_HISTORY items (not pairs), this should be fine.
+    
+    final_prompt_list = prompt_list + history_to_add + [current_user_msg]
+    
+    # Now, trim the *entire* list if it's too long, prioritizing recent messages
+    # while trying to keep initial system prompts.
+    # This is a complex trimming logic. A simpler approach:
+    # Count non-system messages (history + current user query).
+    # If this count > MAX_MESSAGE_HISTORY + 1 (for current query), trim the oldest *conversational* messages.
+
+    # Let's count initial system messages
+    num_initial_system_prompts = 0
+    for msg_node in final_prompt_list:
+        if msg_node.role == "system":
+            num_initial_system_prompts += 1
+        else:
+            break # Stop counting once a non-system message is found
+            
+    initial_system_msgs = final_prompt_list[:num_initial_system_prompts]
+    conversational_msgs = final_prompt_list[num_initial_system_prompts:]
+
+    # Trim the conversational_msgs part if it's too long.
+    # config.MAX_MESSAGE_HISTORY refers to individual MsgNodes (user or assistant).
+    # The current user message is already included in conversational_msgs.
+    if len(conversational_msgs) > config.MAX_MESSAGE_HISTORY : # If history + current query > max
+        # Keep the last config.MAX_MESSAGE_HISTORY items from conversational_msgs
+        trimmed_conversational_msgs = conversational_msgs[-config.MAX_MESSAGE_HISTORY:]
+    else:
+        trimmed_conversational_msgs = conversational_msgs
+        
+    return initial_system_msgs + trimmed_conversational_msgs
+
+
 def chunk_text(text: str, max_length: int = config.EMBED_MAX_LENGTH) -> List[str]:
     """Chunks text into smaller parts for Discord embeds, respecting lines."""
     if not text: return [""]
@@ -170,8 +264,8 @@ def clean_text_for_tts(text: str) -> str:
     return text.strip()
 
 async def _send_audio_segment(destination: Union[discord.abc.Messageable, discord.Interaction, discord.Message], 
-                               segment_text: str, filename_suffix: str, 
-                               is_thought: bool = False, base_filename: str = "response"):
+                                segment_text: str, filename_suffix: str, 
+                                is_thought: bool = False, base_filename: str = "response"):
     """Internal helper to process and send a single audio segment."""
     if not segment_text:
         return
@@ -266,17 +360,33 @@ def ingest_conversation_to_chromadb(channel_id: int, user_id: int, conversation_
         return
 
     # Don't ingest if the history is too short or just the system prompt
-    if len(conversation_history) < 2: # Needs at least one user and one assistant message
+    # conversation_history here is the full prompt sent to LLM, including system messages.
+    # We need to check if there's at least one user and one assistant message *within the conversational part*.
+    
+    # Filter out system messages to check conversational length
+    non_system_messages = [msg for msg in conversation_history if msg.role in ['user', 'assistant']]
+    if len(non_system_messages) < 2: # Needs at least one user and one assistant message
+        logger.debug(f"Skipping ChromaDB ingestion for short conversation (non-system messages: {len(non_system_messages)}).")
         return
 
     try:
-        # Combine messages into a single document
-        full_conversation_text = "\n".join(
-            [f"{msg.role}: {msg.content}" for msg in conversation_history if isinstance(msg.content, str)]
-        )
+        # Combine messages into a single document for ChromaDB.
+        # Include system messages as they provide context for the conversation.
+        full_conversation_text_parts = []
+        for msg in conversation_history:
+            if isinstance(msg.content, str):
+                full_conversation_text_parts.append(f"{msg.role}: {msg.content}")
+            elif isinstance(msg.content, list): # Handle multi-modal content for user messages
+                text_parts_for_chroma = [part["text"] for part in msg.content if part["type"] == "text"]
+                if text_parts_for_chroma:
+                    full_conversation_text_parts.append(f"{msg.role}: {' '.join(text_parts_for_chroma)}")
+                else: # e.g. image only message
+                    full_conversation_text_parts.append(f"{msg.role}: [Media content, no text part for ChromaDB]")
+        
+        full_conversation_text = "\n".join(full_conversation_text_parts)
         
         if not full_conversation_text.strip():
-            logger.info("Skipping ingestion of empty conversation text.")
+            logger.info("Skipping ingestion of empty conversation text to ChromaDB.")
             return
 
         # Use a unique ID based on channel, user, and timestamp
@@ -316,7 +426,7 @@ async def get_summarized_context(past_conversation: str, current_query: str) -> 
     try:
         response = await llm_client.chat.completions.create(
             model=config.LLM_MODEL, # Use the main text model for summarization
-            messages=[{"role": "system", "content": summarizer_prompt_content}],
+            messages=[{"role": "system", "content": summarizer_prompt_content}], # This prompt is self-contained
             max_tokens=300, 
             temperature=0.2, 
             stream=False 
@@ -338,108 +448,122 @@ async def get_summarized_context(past_conversation: str, current_query: str) -> 
 
 async def get_context_aware_llm_stream(prompt_messages: List[MsgNode], is_vision_request: bool) -> tuple[Optional[AsyncStream], str]:
     """
-    Performs the two-step LLM call:
-    1. Generate a "suggested context" for the user's query.
-    2. Stream the final response using the original prompt enhanced with the generated context.
+    Performs the two-step LLM call using the provided prompt_messages.
+    1. Generate a "suggested context" for the user's query (last message in prompt_messages).
+    2. Stream the final response using a copy of prompt_messages, with the "suggested context"
+       injected into the last user message.
+    Assumes prompt_messages already contains all necessary system prompts (main, user-global, Chroma).
     """
     if not prompt_messages:
-        raise ValueError("Prompt messages cannot be empty.")
+        raise ValueError("Prompt messages cannot be empty for get_context_aware_llm_stream.")
 
     last_user_message_node = next((msg for msg in reversed(prompt_messages) if msg.role == 'user'), None)
     if not last_user_message_node:
-        raise ValueError("No user message found in the prompt history.")
+        # This should not happen if _build_initial_prompt_messages always adds a user message.
+        logger.error("No user message found in prompt_messages for get_context_aware_llm_stream.")
+        raise ValueError("No user message found in the prompt history for context generation.")
 
-    logger.info("Step 1: Generating suggested context...")
-    context_generation_prompt_nodes = [
-        MsgNode(
-            role="system",
-            content=(
-                "You are a context analysis expert. Your task is to read the user's question or statement "
-                "and generate a concise 'suggested context' for viewing it. This context should clarify "
-                "underlying assumptions, define key terms, or establish a frame of reference that will "
-                "lead to the most insightful and helpful response. Do not answer the user's question. "
-                "Only provide a single, short paragraph for the suggested context."
-            )
-        ),
-        last_user_message_node # Use the last user message (which might include images or scraped data)
-    ]
+    logger.info("Step 1: Generating suggested context (model-generated)...")
+    # The system prompt for this specific context generation step is fixed.
+    context_generation_system_prompt = MsgNode(
+        role="system",
+        content=(
+            "You are a context analysis expert. Your task is to read the user's question or statement "
+            "and generate a concise 'suggested context' for viewing it. This context should clarify "
+            "underlying assumptions, define key terms, or establish a frame of reference that will "
+            "lead to the most insightful and helpful response. Do not answer the user's question. "
+            "Only provide a single, short paragraph for the suggested context."
+        )
+    )
+    # The context generation LLM call only needs its specific system prompt and the last user message.
+    context_generation_llm_input = [context_generation_system_prompt, last_user_message_node]
 
-    generated_context = "Context generation failed or was not applicable."
+    generated_context = "Context generation failed or was not applicable." # Default
     try:
         context_response = await llm_client.chat.completions.create(
-            model=config.VISION_LLM_MODEL if is_vision_request else config.LLM_MODEL, # Use vision model if images present
-            messages=[msg.to_dict() for msg in context_generation_prompt_nodes],
+            model=config.VISION_LLM_MODEL if is_vision_request else config.LLM_MODEL,
+            messages=[msg.to_dict() for msg in context_generation_llm_input],
             max_tokens=250,
             stream=False,
             temperature=0.4,
         )
         if context_response.choices and context_response.choices[0].message.content:
             generated_context = context_response.choices[0].message.content.strip()
-            logger.info(f"Successfully generated context: {generated_context[:150]}...")
+            logger.info(f"Successfully generated model context: {generated_context[:150]}...")
         else:
-            logger.warning("Context generation returned no content.")
+            logger.warning("Model-generated context step returned no content.")
     except Exception as e:
-        logger.error(f"Could not generate suggested context: {e}", exc_info=True)
+        logger.error(f"Could not generate model-suggested context: {e}", exc_info=True)
 
-    logger.info("Step 2: Streaming final response with injected context.")
-    # Create a deep copy of prompt_messages to avoid modifying the original list in memory
-    final_prompt_messages = [MsgNode(m.role, m.content.copy() if isinstance(m.content, list) else m.content, m.name) for m in prompt_messages]
+    logger.info("Step 2: Streaming final response with injected model-generated context.")
+    # Create a deep copy of the original full prompt_messages to avoid modifying it in place.
+    # This prompt_messages already contains main system prompt, user-global, Chroma, history.
+    final_prompt_messages_for_stream = [
+        MsgNode(m.role, m.content.copy() if isinstance(m.content, list) else m.content, m.name) 
+        for m in prompt_messages
+    ]
     
-    # Find the last user message node in the copied list
-    final_user_message_node = next((msg for msg in reversed(final_prompt_messages) if msg.role == 'user'), None)
+    # Find the last user message node IN THE COPIED LIST to inject the model-generated context.
+    final_user_message_node_in_copy = next((msg for msg in reversed(final_prompt_messages_for_stream) if msg.role == 'user'), None)
     
-    if not final_user_message_node: 
-        logger.error("Critical error: final_user_message_node is None in get_context_aware_llm_stream")
+    if not final_user_message_node_in_copy: 
+        logger.error("Critical error: final_user_message_node_in_copy is None in get_context_aware_llm_stream. This indicates an issue with prompt construction.")
+        # Fallback: return None for stream, but still provide the generated_context for display.
         return None, generated_context
 
-    original_question = ""
-    if isinstance(final_user_message_node.content, str):
-        original_question = final_user_message_node.content
-    elif isinstance(final_user_message_node.content, list):
-        # Find the text part of the user's message
-        text_part = next((part['text'] for part in final_user_message_node.content if part['type'] == 'text'), "")
-        original_question = text_part
+    original_question_text = ""
+    if isinstance(final_user_message_node_in_copy.content, str):
+        original_question_text = final_user_message_node_in_copy.content
+    elif isinstance(final_user_message_node_in_copy.content, list):
+        text_part = next((part['text'] for part in final_user_message_node_in_copy.content if part['type'] == 'text'), "")
+        original_question_text = text_part
 
-    injected_prompt_text = (
+    # Prepare the text to inject into the user's message.
+    injected_text_for_user_message = (
         f"<model_generated_suggested_context>\n{generated_context}\n</model_generated_suggested_context>\n\n"
-        f"<user_question>\nWith that context in mind, please respond to the following:\n{original_question}\n Do not use emojis. </user_question>"
+        f"<user_question>\nWith all prior context (including global, retrieved, and the suggested context above) in mind, Sam, please respond to the following:\n{original_question_text}\n</user_question>"
     )
 
-    # Update the content of the last user message node
-    if isinstance(final_user_message_node.content, str):
-        final_user_message_node.content = injected_prompt_text
-    elif isinstance(final_user_message_node.content, list):
-        text_part_found = False
-        for part in final_user_message_node.content:
+    # Update the content of the last user message node in the copied list.
+    if isinstance(final_user_message_node_in_copy.content, str):
+        final_user_message_node_in_copy.content = injected_text_for_user_message
+    elif isinstance(final_user_message_node_in_copy.content, list):
+        text_part_found_and_updated = False
+        for part_idx, part in enumerate(final_user_message_node_in_copy.content):
             if part['type'] == 'text':
-                part['text'] = injected_prompt_text
-                text_part_found = True
+                # Replace the existing text part with the new injected content
+                final_user_message_node_in_copy.content[part_idx] = {"type": "text", "text": injected_text_for_user_message}
+                text_part_found_and_updated = True
                 break
-        if not text_part_found: # If no text part existed (e.g., image only message)
-            final_user_message_node.content.insert(0, {"type": "text", "text": injected_prompt_text})
+        if not text_part_found_and_updated: # If no text part existed (e.g., image-only message originally)
+            final_user_message_node_in_copy.content.insert(0, {"type": "text", "text": injected_text_for_user_message})
 
-    current_model = config.VISION_LLM_MODEL if is_vision_request else config.LLM_MODEL
-    logger.info(f"Using model for final streaming: {current_model}")
+    # Determine the model for the final streaming call
+    final_stream_model = config.VISION_LLM_MODEL if is_vision_request else config.LLM_MODEL
+    logger.info(f"Using model for final streaming response: {final_stream_model}")
+    # logger.debug(f"Final prompt messages for streaming: {[m.to_dict() for m in final_prompt_messages_for_stream]}")
+
 
     try:
-        final_stream = await llm_client.chat.completions.create(
-            model=current_model,
-            messages=[msg.to_dict() for msg in final_prompt_messages],
+        final_llm_stream = await llm_client.chat.completions.create(
+            model=final_stream_model,
+            messages=[msg.to_dict() for msg in final_prompt_messages_for_stream], # Use the modified copy
             max_tokens=config.MAX_COMPLETION_TOKENS,
             stream=True,
-            temperature=0.7,
+            temperature=0.7, # Or your preferred temperature for final response
         )
-        return final_stream, generated_context
+        return final_llm_stream, generated_context # Return the model-generated context for display
     except Exception as e:
-        logger.error(f"Failed to create LLM stream: {e}", exc_info=True)
-        return None, generated_context
+        logger.error(f"Failed to create LLM stream for final response: {e}", exc_info=True)
+        return None, generated_context # Still return generated_context for display even if stream fails
+
 
 async def _stream_llm_handler(
     interaction_or_message: Union[discord.Interaction, discord.Message], 
-    prompt_messages: List[MsgNode],
+    prompt_messages: List[MsgNode], # This is the fully constructed prompt from _build_initial_prompt_messages
     title: str,
     initial_message_to_edit: Optional[discord.Message] = None,
-    summarized_chroma_context: Optional[str] = None # New parameter
+    summarized_chroma_context: Optional[str] = None # Primarily for display prefix now
 ) -> str:
     sent_messages: List[discord.Message] = []
     full_response_content = ""
@@ -471,24 +595,29 @@ async def _stream_llm_handler(
         logger.error(f"Failed to establish an initial message for streaming title '{title}'.")
         return ""
 
+    response_prefix = "" 
     try:
         is_vision_request = any(
             isinstance(p.content, list) and any(c.get("type") == "image_url" for c in p.content)
-            for p in prompt_messages
+            for p in prompt_messages # Check the fully built prompt
         )
-        stream, generated_context = await get_context_aware_llm_stream(prompt_messages, is_vision_request)
+        # `prompt_messages` here is already fully constructed by _build_initial_prompt_messages
+        stream, model_generated_context_for_display = await get_context_aware_llm_stream(prompt_messages, is_vision_request)
 
-        # Construct the response prefix, including the summarized ChromaDB context if available
+        # Construct the response prefix for display in Discord
         prefix_parts = []
-        if summarized_chroma_context:
+        if summarized_chroma_context: # This is the one passed for display
             prefix_parts.append(f"**Retrieved & Summarized Context:**\n> {summarized_chroma_context.replace(chr(10), ' ').strip()}\n\n---")
         
-        prefix_parts.append(f"**Model-Generated Suggested Context:**\n> {generated_context.replace(chr(10), ' ').strip()}\n\n---")
+        if config.USER_PROVIDED_CONTEXT:
+            prefix_parts.append(f"**User-Provided Context:**\n> {config.USER_PROVIDED_CONTEXT.replace(chr(10), ' ').strip()}\n\n---")
+
+        # Use the model_generated_context_for_display returned by get_context_aware_llm_stream
+        prefix_parts.append(f"**Model-Generated Suggested Context:**\n> {model_generated_context_for_display.replace(chr(10), ' ').strip()}\n\n---")
         prefix_parts.append("**Response:**\n")
         response_prefix = "\n".join(prefix_parts)
 
         if stream is None: 
-            # Use the constructed prefix even for error messages to show context attempts
             error_text = response_prefix + "Failed to get response from LLM."
             error_embed = discord.Embed(title=title, description=error_text, color=config.EMBED_COLOR["error"])
             if sent_messages: await sent_messages[0].edit(embed=error_embed)
@@ -514,13 +643,13 @@ async def _stream_llm_handler(
             if accumulated_delta_for_update and (current_time - last_edit_time >= (1.0 / config.EDITS_PER_SECOND) or len(accumulated_delta_for_update) > 200) : 
                 display_text = response_prefix + full_response_content
                 text_chunks = chunk_text(display_text, config.EMBED_MAX_LENGTH)
-                logger.info(f"Stream update: Title '{title}'. Chunks: {len(text_chunks)}. Sent msgs: {len(sent_messages)}. AccumDelta: {len(accumulated_delta_for_update)}")
+                # logger.info(f"Stream update: Title '{title}'. Chunks: {len(text_chunks)}. Sent msgs: {len(sent_messages)}. AccumDelta: {len(accumulated_delta_for_update)}")
                 accumulated_delta_for_update = "" 
 
-                for i, chunk_content in enumerate(text_chunks):
+                for i, chunk_content_part in enumerate(text_chunks):
                     embed = discord.Embed(
                         title=title if i == 0 else f"{title} (cont.)",
-                        description=chunk_content,
+                        description=chunk_content_part, # Renamed to avoid conflict
                         color=config.EMBED_COLOR["incomplete"]
                     )
                     try:
@@ -537,12 +666,12 @@ async def _stream_llm_handler(
                         logger.warning(f"Failed edit/send embed part {i+1} (stream) for '{title}': {e_edit_send}")
                 last_edit_time = current_time
         
-        if accumulated_delta_for_update:
+        if accumulated_delta_for_update: # Process any remaining accumulated text
             display_text = response_prefix + full_response_content
             text_chunks = chunk_text(display_text, config.EMBED_MAX_LENGTH)
-            logger.info(f"Final stream accumulation processing: Title '{title}'. Chunks: {len(text_chunks)}. Sent msgs: {len(sent_messages)}.")
-            for i, chunk_content in enumerate(text_chunks):
-                embed = discord.Embed(title=title if i == 0 else f"{title} (cont.)", description=chunk_content, color=config.EMBED_COLOR["incomplete"])
+            # logger.info(f"Final stream accumulation processing: Title '{title}'. Chunks: {len(text_chunks)}. Sent msgs: {len(sent_messages)}.")
+            for i, chunk_content_part in enumerate(text_chunks): # Renamed
+                embed = discord.Embed(title=title if i == 0 else f"{title} (cont.)", description=chunk_content_part, color=config.EMBED_COLOR["incomplete"])
                 try:
                     if i < len(sent_messages): await sent_messages[i].edit(embed=embed)
                     else:
@@ -551,16 +680,16 @@ async def _stream_llm_handler(
 
         final_display_text = response_prefix + full_response_content
         final_chunks = chunk_text(final_display_text, config.EMBED_MAX_LENGTH)
-        logger.info(f"Finalizing stream: Title '{title}'. Final Chunks: {len(final_chunks)}. Current sent msgs: {len(sent_messages)}.")
+        # logger.info(f"Finalizing stream: Title '{title}'. Final Chunks: {len(final_chunks)}. Current sent msgs: {len(sent_messages)}.")
 
-        if len(final_chunks) < len(sent_messages):
+        if len(final_chunks) < len(sent_messages): # Delete extra messages if response shortened
             for k in range(len(final_chunks), len(sent_messages)):
                 try: await sent_messages[k].delete()
                 except discord.HTTPException: pass 
             sent_messages = sent_messages[:len(final_chunks)]
         
-        for i, chunk_content in enumerate(final_chunks):
-            embed = discord.Embed(title=title if i == 0 else f"{title} (cont.)", description=chunk_content, color=config.EMBED_COLOR["complete"])
+        for i, chunk_content_part in enumerate(final_chunks): # Renamed
+            embed = discord.Embed(title=title if i == 0 else f"{title} (cont.)", description=chunk_content_part, color=config.EMBED_COLOR["complete"])
             if i < len(sent_messages):
                 await sent_messages[i].edit(embed=embed)
             else: 
@@ -572,12 +701,11 @@ async def _stream_llm_handler(
                     break
 
         if not full_response_content.strip() and sent_messages: 
-            empty_text = response_prefix + ("\nSam didn't provide a response." if generated_context != "Context generation failed or was not applicable." else "\nSam had an issue and couldn't respond.")
+            empty_text = response_prefix + ("\nSam didn't provide a response." if model_generated_context_for_display != "Context generation failed or was not applicable." else "\nSam had an issue and couldn't respond.")
             await sent_messages[0].edit(embed=discord.Embed(title=title, description=empty_text, color=config.EMBED_COLOR["error"]))
 
     except Exception as e:
         logger.error(f"Error in _stream_llm_handler for '{title}': {e}", exc_info=True)
-        # Use the constructed prefix in error messages too, if available
         error_prefix_for_display = response_prefix if 'response_prefix' in locals() and response_prefix else ""
         error_embed = discord.Embed(title=title, description=error_prefix_for_display + f"An error occurred: {str(e)[:1000]}", color=config.EMBED_COLOR["error"])
         if sent_messages: 
@@ -591,10 +719,10 @@ async def _stream_llm_handler(
 
 async def stream_llm_response_to_interaction(
     interaction: discord.Interaction, 
-    prompt_messages: list, 
+    prompt_messages: list, # This is the fully constructed prompt
     title: str = "Sam's Response", 
     force_new_followup_flow: bool = False,
-    summarized_chroma_context: Optional[str] = None # Passed through for _stream_llm_handler
+    summarized_chroma_context: Optional[str] = None # For display prefix
 ):
     initial_msg_for_handler: Optional[discord.Message] = None
     if not force_new_followup_flow:
@@ -619,25 +747,42 @@ async def stream_llm_response_to_interaction(
     if force_new_followup_flow:
         initial_msg_for_handler = None
 
+    # prompt_messages is already fully built by the calling slash command using _build_initial_prompt_messages
     full_response_content = await _stream_llm_handler(
         interaction_or_message=interaction,
         prompt_messages=prompt_messages,
         title=title,
         initial_message_to_edit=initial_msg_for_handler,
-        summarized_chroma_context=summarized_chroma_context # Pass it down
+        summarized_chroma_context=summarized_chroma_context 
     )
 
     if full_response_content:
         channel_id = interaction.channel_id
         if channel_id not in message_history: message_history[channel_id] = []
         
-        completed_interaction_history = list(prompt_messages) 
-        completed_interaction_history.append(MsgNode(role="assistant", content=full_response_content, name=str(bot.user.id)))
-        
-        ingest_conversation_to_chromadb(channel_id, interaction.user.id, completed_interaction_history)
+        # prompt_messages contains the full prompt sent to LLM, including the user's query part.
+        # The last message in prompt_messages should be the user's query.
+        user_message_node_for_history = next((msg for msg in reversed(prompt_messages) if msg.role == 'user'), None)
 
-        message_history[channel_id].append(MsgNode(role="assistant", content=full_response_content, name=str(bot.user.id)))
-        message_history[channel_id] = message_history[channel_id][-config.MAX_MESSAGE_HISTORY:]
+        if user_message_node_for_history:
+             # We need the *original* user query content, not the one modified by get_context_aware_llm_stream
+             # This is tricky because prompt_messages was modified.
+             # For now, let's assume the last user message in the *input* prompt_messages is what we want.
+             # This part needs careful review if prompt_messages is modified before this point.
+             # The `prompt_messages` passed to `_stream_llm_handler` is the one built by `_build_initial_prompt_messages`.
+             # The `get_context_aware_llm_stream` makes a *copy* and modifies that copy.
+             # So, the `prompt_messages` here should still have the original user query as its last user message.
+            message_history[channel_id].append(user_message_node_for_history)
+        
+        assistant_response_node = MsgNode(role="assistant", content=full_response_content, name=str(bot.user.id))
+        message_history[channel_id].append(assistant_response_node)
+        message_history[channel_id] = message_history[channel_id][-config.MAX_MESSAGE_HISTORY:] # Trim
+        
+        # For ChromaDB, use the prompt_messages that was actually sent (which includes system contexts)
+        # and the final assistant response.
+        chroma_ingest_history = list(prompt_messages) 
+        chroma_ingest_history.append(assistant_response_node)
+        ingest_conversation_to_chromadb(channel_id, interaction.user.id, chroma_ingest_history)
         
         tts_base_id = interaction.id 
         if initial_msg_for_handler: 
@@ -647,9 +792,9 @@ async def stream_llm_response_to_interaction(
 
 async def stream_llm_response_to_message(
     target_message: discord.Message, 
-    prompt_messages: list, 
+    prompt_messages: list, # This is the fully constructed prompt
     title: str = "Sam's Response",
-    summarized_chroma_context: Optional[str] = None # New parameter
+    summarized_chroma_context: Optional[str] = None # For display prefix
 ):
     initial_embed = discord.Embed(title=title, description="⏳ Generating context...", color=config.EMBED_COLOR["incomplete"])
     reply_message: Optional[discord.Message] = None
@@ -659,25 +804,30 @@ async def stream_llm_response_to_message(
         logger.error(f"Failed to send initial reply for message stream '{title}': {e}")
         return 
 
+    # prompt_messages is already fully built by on_message using _build_initial_prompt_messages
     full_response_content = await _stream_llm_handler(
         interaction_or_message=target_message, 
         prompt_messages=prompt_messages,
         title=title,
         initial_message_to_edit=reply_message,
-        summarized_chroma_context=summarized_chroma_context # Pass it down
+        summarized_chroma_context=summarized_chroma_context
     )
 
     if full_response_content:
         channel_id = target_message.channel.id
-        if channel_id not in message_history: message_history[channel_id] = []
+        # message_history[channel_id] was already updated with the user's current message in on_message
+        # Now add assistant's response
+        assistant_response_node = MsgNode(role="assistant", content=full_response_content, name=str(bot.user.id))
+        message_history[channel_id].append(assistant_response_node)
+        message_history[channel_id] = message_history[channel_id][-config.MAX_MESSAGE_HISTORY:] # Trim
+
+        # For ChromaDB, use the prompt_messages that was actually sent 
+        # (which includes system contexts and the current user message)
+        # and the final assistant response.
+        chroma_ingest_history = list(prompt_messages) 
+        chroma_ingest_history.append(assistant_response_node)
+        ingest_conversation_to_chromadb(channel_id, target_message.author.id, chroma_ingest_history)
         
-        completed_interaction_history = list(prompt_messages) 
-        completed_interaction_history.append(MsgNode(role="assistant", content=full_response_content, name=str(bot.user.id)))
-
-        ingest_conversation_to_chromadb(channel_id, target_message.author.id, completed_interaction_history)
-
-        message_history[channel_id].append(MsgNode(role="assistant", content=full_response_content, name=str(bot.user.id)))
-        message_history[channel_id] = message_history[channel_id][-config.MAX_MESSAGE_HISTORY:]
         await send_tts_audio(target_message.channel, full_response_content, base_filename=f"message_{target_message.id}")
 
 
@@ -797,16 +947,15 @@ async def scrape_website(url: str) -> Optional[str]:
     try:
         async with async_playwright() as p:
             if profile_dir_usable:
-                # Using persistent context to potentially handle logins/cookies better
                 context = await p.chromium.launch_persistent_context(
-                    user_data_dir, headless=False, # Set to True for production
+                    user_data_dir, headless=True, 
                     args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
                 )
             else: 
                 logger.warning("Using non-persistent context for scrape_website.")
                 browser_instance_sw = await p.chromium.launch(
-                    headless=False, # Set to True for production
+                    headless=True, 
                     args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
                 )
                 context = await browser_instance_sw.new_context(
@@ -814,23 +963,21 @@ async def scrape_website(url: str) -> Optional[str]:
                     java_script_enabled=True,
                     ignore_https_errors=True
                 )
-            context_manager = context # Keep a reference to close later
+            context_manager = context 
             page = await context_manager.new_page()
             await page.goto(url, wait_until='domcontentloaded', timeout=25000) 
             
-            # Try to find main content area, fallback to body
             content_selectors = ["article", "main", "div[role='main']", "body"]
             content = ""
             for selector in content_selectors:
                 try:
                     element = page.locator(selector).first
                     if await element.count() > 0 and await element.is_visible(): 
-                        content = await element.inner_text(timeout=5000) # Timeout for inner_text
-                        if content and len(content.strip()) > 200: break # Prefer longer content
+                        content = await element.inner_text(timeout=5000) 
+                        if content and len(content.strip()) > 200: break 
                 except PlaywrightTimeoutError: logger.debug(f"Timeout for selector {selector} on {url}")
                 except Exception as e_sel: logger.warning(f"Error with selector {selector} on {url}: {e_sel}")
             
-            # Fallback if specific selectors didn't yield much
             if not content or len(content.strip()) < 100 : content = await page.evaluate('document.body.innerText')
             return re.sub(r'\s\s+', ' ', content.strip()) if content else None
     except PlaywrightTimeoutError:
@@ -842,21 +989,20 @@ async def scrape_website(url: str) -> Optional[str]:
     finally:
         if page and not page.is_closed():
             try: await page.close()
-            except Exception: pass # Ignore errors on close
-        if context_manager: # This is either the persistent context or the one from browser_instance_sw
+            except Exception: pass 
+        if context_manager: 
             try: await context_manager.close()
             except Exception as e_ctx: 
-                # Avoid logging "Target page, context or browser has been closed" as an error if it's expected
                 if "Target page, context or browser has been closed" not in str(e_ctx): 
-                    logger.error(f"Error closing context for {url}: {e_ctx}", exc_info=False) 
-        if browser_instance_sw and not profile_dir_usable: # Only close browser if we launched it non-persistently
+                    logger.debug(f"Ignoring error closing context for {url}: {e_ctx}") # Debug for this common case
+        if browser_instance_sw and not profile_dir_usable: 
             try: await browser_instance_sw.close()
             except Exception: pass
 
 async def scrape_latest_tweets(username_queried: str, limit: int = 10) -> List[dict]:
     logger.info(f"Scraping last {limit} tweets for @{username_queried} (with_replies) with JS enhancement.")
     tweets_collected = []
-    seen_tweet_ids = set() # To avoid duplicates if JS extracts same tweet multiple times during scroll
+    seen_tweet_ids = set() 
     user_data_dir = os.path.join(os.getcwd(), ".pw-profile")
     profile_dir_usable = True
     if not os.path.exists(user_data_dir):
@@ -867,17 +1013,17 @@ async def scrape_latest_tweets(username_queried: str, limit: int = 10) -> List[d
     try:
         async with async_playwright() as p:
             if profile_dir_usable:
-                logger.info(f"Using persistent profile: {user_data_dir}")
+                # logger.info(f"Using persistent profile: {user_data_dir}") # Less verbose
                 context = await p.chromium.launch_persistent_context(
-                    user_data_dir, headless=False, # Set to True for production
+                    user_data_dir, headless=True, 
                     args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
                     user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36",
-                    slow_mo=150 # Slow down interactions to appear more human
+                    slow_mo=150 
                 )
             else:
                 logger.warning("Using non-persistent context for tweet scraping.")
                 browser_instance_st = await p.chromium.launch(
-                    headless=False, # Set to True for production
+                    headless=True, 
                     args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
                     slow_mo=150
                 )
@@ -886,69 +1032,60 @@ async def scrape_latest_tweets(username_queried: str, limit: int = 10) -> List[d
                 )
             context_manager = context; page = await context_manager.new_page()
             
-            url = f"https://x.com/{username_queried.lstrip('@')}/with_replies" # Always fetch with_replies for more comprehensive data
+            url = f"https://x.com/{username_queried.lstrip('@')}/with_replies" 
             logger.info(f"Navigating to {url}")
-            await page.goto(url, timeout=60000, wait_until="domcontentloaded") # Increased timeout
+            await page.goto(url, timeout=60000, wait_until="domcontentloaded") 
             
             try:
-                # Wait for at least one tweet article to appear
                 await page.wait_for_selector("article[data-testid='tweet']", timeout=30000)
                 logger.info("Initial tweet articles detected.")
-                # Try to dismiss potential pop-ups/modals
                 await asyncio.sleep(1.5); await page.keyboard.press("Escape"); await asyncio.sleep(0.5); await page.keyboard.press("Escape")
             except PlaywrightTimeoutError: 
                 logger.warning(f"Timed out waiting for initial tweet articles for @{username_queried}. Site structure might have changed or profile is protected/empty.")
                 return [] 
             
-            max_scroll_attempts = limit + 15 # Scroll a bit more than limit to ensure we get enough unique tweets
+            max_scroll_attempts = limit + 15 
             for scroll_attempt in range(max_scroll_attempts):
                 if len(tweets_collected) >= limit: break
-                logger.debug(f"Tweet scrape attempt {scroll_attempt + 1}/{max_scroll_attempts}. Collected: {len(tweets_collected)}/{limit}")
+                # logger.debug(f"Tweet scrape attempt {scroll_attempt + 1}/{max_scroll_attempts}. Collected: {len(tweets_collected)}/{limit}")
                 
-                try: # Expand "Show more" buttons
-                    clicked_count = await page.evaluate(JS_EXPAND_SHOWMORE_TWITTER, 5) # Try to click up to 5
-                    if clicked_count > 0: logger.info(f"Clicked {clicked_count} 'Show more' elements."); await asyncio.sleep(1.5 + random.uniform(0.3, 0.9)) # Wait for content to load
+                try: 
+                    clicked_count = await page.evaluate(JS_EXPAND_SHOWMORE_TWITTER, 5) 
+                    if clicked_count > 0: logger.info(f"Clicked {clicked_count} 'Show more' elements."); await asyncio.sleep(1.5 + random.uniform(0.3, 0.9)) 
                 except Exception as e_sm: logger.warning(f"JS 'Show More' error: {e_sm}")
                 
                 extracted_this_round = []; newly_added_count = 0
                 try: extracted_this_round = await page.evaluate(JS_EXTRACT_TWEETS_TWITTER)
                 except Exception as e_js: logger.error(f"JS tweet extraction error: {e_js}")
                 
-                for data in extracted_this_round: # data is already a dict from JS
-                    uid = data.get('id') or (data.get("username","") + (data.get("content") or "")[:30] + data.get("timestamp","")) # Create a more robust unique ID
+                for data in extracted_this_round: 
+                    uid = data.get('id') or (data.get("username","") + (data.get("content") or "")[:30] + data.get("timestamp","")) 
                     if uid and uid not in seen_tweet_ids:
                         tweets_collected.append(data) 
                         seen_tweet_ids.add(uid); newly_added_count +=1
                         if len(tweets_collected) >= limit: break
-                logger.info(f"Extracted {len(extracted_this_round)}, added {newly_added_count} new unique tweets.")
+                # logger.info(f"Extracted {len(extracted_this_round)}, added {newly_added_count} new unique tweets.")
                 
-                # If no new tweets after several scrolls, assume end or issue
                 if newly_added_count == 0 and scroll_attempt > (limit // 2 + 7): 
                     logger.info("No new unique tweets found in several attempts. Assuming end or stuck."); break
                 
-                await page.evaluate("window.scrollBy(0, window.innerHeight * 1.5);"); await asyncio.sleep(random.uniform(3.0, 5.0)) # Scroll and wait
+                await page.evaluate("window.scrollBy(0, window.innerHeight * 1.5);"); await asyncio.sleep(random.uniform(3.0, 5.0)) 
     except PlaywrightTimeoutError as e: logger.warning(f"Playwright overall timeout for @{username_queried}: {e}")
     except Exception as e: logger.error(f"Unexpected error scraping tweets for @{username_queried}: {e}", exc_info=True)
     finally:
-        # Graceful closing of resources
         if page and not page.is_closed(): 
-            try: 
-                await page.close() 
-            except Exception as e_page_close_final:
-                logger.warning(f"Ignoring error closing page (final attempt) for @{username_queried}: {e_page_close_final}")
+            try: await page.close() 
+            except Exception as e_page_close_final: logger.debug(f"Ignoring error closing page (final attempt) for @{username_queried}: {e_page_close_final}")
         if context_manager: 
-            try: 
-                await context_manager.close()
+            try: await context_manager.close()
             except Exception as e_ctx_final:
                 if "Target page, context or browser has been closed" not in str(e_ctx_final):
-                    logger.error(f"Error closing context (final attempt) for @{username_queried}: {e_ctx_final}", exc_info=False)
-        if browser_instance_st and not profile_dir_usable: # Only close browser if we launched it non-persistently
-            try: 
-                await browser_instance_st.close()
-            except Exception as e_browser_final:
-                logger.warning(f"Ignoring error closing browser (final attempt) for @{username_queried}: {e_browser_final}")
+                    logger.debug(f"Error closing context (final attempt) for @{username_queried}: {e_ctx_final}")
+        if browser_instance_st and not profile_dir_usable: 
+            try: await browser_instance_st.close()
+            except Exception as e_browser_final: logger.debug(f"Ignoring error closing browser (final attempt) for @{username_queried}: {e_browser_final}")
                 
-    tweets_collected.sort(key=lambda x: x.get("timestamp", ""), reverse=True) # Sort by newest first
+    tweets_collected.sort(key=lambda x: x.get("timestamp", ""), reverse=True) 
     logger.info(f"Finished scraping. Collected {len(tweets_collected)} tweets for @{username_queried}.")
     return tweets_collected[:limit]
 
@@ -959,9 +1096,9 @@ async def query_searx(query: str) -> List[dict]:
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(config.SEARX_URL, params=params, timeout=10) as response:
-                response.raise_for_status() # Raise an exception for bad status codes
+                response.raise_for_status() 
                 results_json = await response.json()
-                return results_json.get('results', [])[:5] # Return top 5 results
+                return results_json.get('results', [])[:5] 
     except aiohttp.ClientError as e: logger.error(f"Searx query failed for '{query}': {e}")
     except json.JSONDecodeError: logger.error(f"Failed to decode JSON from Searx for '{query}'")
     return []
@@ -978,15 +1115,13 @@ async def fetch_youtube_transcript(url: str) -> Optional[str]:
         except NoTranscriptFound:
             try: transcript = transcript_list.find_generated_transcript(['en', 'en-US', 'en-GB'])
             except NoTranscriptFound:
-                # Try to get any available transcript if English is not found
                 available_langs = [t.language for t in transcript_list]
                 if available_langs:
                     logger.warning(f"No English transcript for {video_id}. Available: {available_langs}. Trying first available.")
-                    transcript = transcript_list.find_generated_transcript([available_langs[0]]) # Try the first available language
+                    transcript = transcript_list.find_generated_transcript([available_langs[0]]) 
         if transcript:
             fetched_data = transcript.fetch()
             full_text = " ".join([entry['text'] for entry in fetched_data])
-            # Return full transcript, LLM prompt will truncate if needed
             return f"(Language: {transcript.language}) {full_text}" if transcript.language != 'en' else full_text
         else: logger.warning(f"No transcript found for YouTube video: {url}"); return None
     except Exception as e: logger.error(f"Failed to fetch YouTube transcript for {url}: {e}", exc_info=True); return None
@@ -995,15 +1130,13 @@ def transcribe_audio_file(file_path: str) -> Optional[str]:
     if not os.path.exists(file_path): logger.error(f"Audio file not found: {file_path}"); return None
     try:
         logger.info(f"Loading Whisper model (base) for: {file_path}")
-        # Consider using a smaller model if speed is critical and accuracy is less so, or larger for higher accuracy.
         model = whisper.load_model("base") 
         logger.info(f"Transcribing audio: {file_path}")
-        result = model.transcribe(file_path, fp16=torch.cuda.is_available()) # fp16 if CUDA is available
+        result = model.transcribe(file_path, fp16=torch.cuda.is_available()) 
         logger.info(f"Transcription successful for {file_path}.")
         return result["text"]
     except Exception as e: logger.error(f"Whisper transcription failed for {file_path}: {e}", exc_info=True); return None
     finally:
-        # Clean up model and CUDA memory
         if 'model' in locals(): del model
         gc.collect()
         if torch.cuda.is_available(): torch.cuda.empty_cache()
@@ -1011,19 +1144,19 @@ def transcribe_audio_file(file_path: str) -> Optional[str]:
 @tasks.loop(seconds=30) 
 async def check_reminders():
     now = datetime.now()
-    due_indices = [i for i, r_tuple in enumerate(reminders) if now >= r_tuple[0]] # r_tuple[0] is reminder_time
-    for index in sorted(due_indices, reverse=True): # Process and remove from end to avoid index issues
+    due_indices = [i for i, r_tuple in enumerate(reminders) if now >= r_tuple[0]] 
+    for index in sorted(due_indices, reverse=True): 
         reminder_time, channel_id, user_id, message_content, original_time_str = reminders.pop(index)
         logger.info(f"Reminder DUE for user {user_id} in channel {channel_id}: {message_content}")
         try:
             channel = await bot.fetch_channel(channel_id)
-            user = await bot.fetch_user(user_id) # Fetch user object
-            if channel and user: # Ensure both channel and user are found
+            user = await bot.fetch_user(user_id) 
+            if channel and user and isinstance(channel, discord.abc.Messageable): # Added isinstance check
                 embed = discord.Embed(title=f"⏰ Reminder! (Set {original_time_str})", description=message_content, color=discord.Color.blue(), timestamp=reminder_time)
                 embed.set_footer(text=f"Reminder for {user.display_name}")
-                await channel.send(content=user.mention, embed=embed) # Mention the user
+                await channel.send(content=user.mention, embed=embed) 
                 await send_tts_audio(channel, f"Reminder for {user.display_name}: {message_content}", base_filename=f"reminder_{user_id}_{channel_id}")
-            else: logger.warning(f"Could not fetch channel/user for reminder: ChID {channel_id}, UserID {user_id}")
+            else: logger.warning(f"Could not fetch channel/user or channel not messageable for reminder: ChID {channel_id}, UserID {user_id}")
         except discord.errors.NotFound: logger.warning(f"Channel/User not found for reminder: ChID {channel_id}, UserID {user_id}.")
         except Exception as e: logger.error(f"Failed to send reminder (ChID {channel_id}, UserID {user_id}): {e}", exc_info=True)
 
@@ -1036,8 +1169,8 @@ def parse_time_string_to_delta(time_str: str) -> tuple[Optional[timedelta], Opti
         's': r'(\d+)\s*s(?:econd(?:s)?|ec(?:s)?)?'
     }
     delta_args = {'days': 0, 'hours': 0, 'minutes': 0, 'seconds': 0}
-    original_parts = [] # To reconstruct a user-friendly string
-    time_str_processed = time_str.lower() # Work with lowercase
+    original_parts = [] 
+    time_str_processed = time_str.lower() 
 
     for key, pattern_regex in patterns.items():
         for match in re.finditer(pattern_regex, time_str_processed):
@@ -1045,14 +1178,13 @@ def parse_time_string_to_delta(time_str: str) -> tuple[Optional[timedelta], Opti
             unit_full = {'d': 'days', 'h': 'hours', 'm': 'minutes', 's': 'seconds'}[key]
             delta_args[unit_full] += value
             original_parts.append(f"{value} {unit_full.rstrip('s') if value == 1 else unit_full}")
-        # Remove matched part to avoid re-matching (e.g., 'm' in 'month')
         time_str_processed = re.sub(pattern_regex, "", time_str_processed) 
 
-    if not any(val > 0 for val in delta_args.values()): return None, None # No valid time units found
+    if not any(val > 0 for val in delta_args.values()): return None, None 
     
     time_delta = timedelta(**delta_args)
-    descriptive_str = ", ".join(original_parts) if original_parts else "immediately" # Should not be "immediately" if delta_args had values
-    if not descriptive_str and time_delta.total_seconds() > 0 : descriptive_str = "a duration" # Fallback
+    descriptive_str = ", ".join(original_parts) if original_parts else "immediately" 
+    if not descriptive_str and time_delta.total_seconds() > 0 : descriptive_str = "a duration" 
     return time_delta, descriptive_str
 
 # -------------------------------------------------------------------
@@ -1076,30 +1208,28 @@ def parse_chatgpt_export(json_file_path: str) -> List[dict]:
     for convo in conversations_data:
         title = convo.get('title', 'Untitled')
         create_time_ts = convo.get('create_time')
-        create_time = datetime.fromtimestamp(create_time_ts) if create_time_ts else datetime.now() # Fallback for create_time
+        create_time = datetime.fromtimestamp(create_time_ts) if create_time_ts else datetime.now() 
         
         messages = []
         current_node_id = convo.get('current_node')
         mapping = convo.get('mapping', {})
 
-        # Traverse the conversation tree from the current node upwards to the root
         while current_node_id:
             node = mapping.get(current_node_id)
-            if not node: break # Should not happen in a valid export
+            if not node: break 
             
             message_data = node.get('message')
             if message_data and message_data.get('content') and message_data['content']['content_type'] == 'text':
                 author_role = message_data['author']['role']
-                # Ensure 'parts' is a list and join them, handle if parts is missing or not a list
                 text_parts = message_data['content'].get('parts', [])
                 text_content = "".join(text_parts) if isinstance(text_parts, list) else ""
                 
-                if text_content and author_role in ['user', 'assistant', 'system']: # Include system messages if present
+                if text_content and author_role in ['user', 'assistant', 'system']: 
                     messages.append({'role': author_role, 'content': text_content})
             
-            current_node_id = node.get('parent') # Move to the parent node
+            current_node_id = node.get('parent') 
         
-        messages.reverse() # Messages are traversed from newest to oldest, so reverse
+        messages.reverse() 
         if messages:
             extracted_conversations.append({'title': title, 'create_time': create_time, 'messages': messages})
     return extracted_conversations
@@ -1112,17 +1242,15 @@ def store_conversations_in_chromadb(conversations: List[dict], source: str = "ch
     
     documents, metadatas, ids = [], [], []
     for i, convo in enumerate(conversations):
-        # Combine all messages (user, assistant, system) into a single text document
         full_conversation_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in convo['messages']])
-        if not full_conversation_text.strip(): continue # Skip empty conversations
+        if not full_conversation_text.strip(): continue 
 
         documents.append(full_conversation_text)
         metadatas.append({
             "title": convo['title'],
             "source": source,
-            "create_time": convo['create_time'].isoformat() # Store timestamp as ISO string
+            "create_time": convo['create_time'].isoformat() 
         })
-        # Create a more unique ID
         ids.append(f"{source}_{convo.get('title', 'untitled').replace(' ', '_')}_{i}_{int(convo['create_time'].timestamp())}")
 
     if documents:
@@ -1140,9 +1268,9 @@ def store_conversations_in_chromadb(conversations: List[dict], source: str = "ch
 
 @bot.tree.command(name="ingest_chatgpt_export", description="Ingests a conversations.json file from a ChatGPT export.")
 @app_commands.describe(file_path="The full local path to your conversations.json file.")
-@app_commands.checks.has_permissions(manage_messages=True) # Or a more appropriate permission like manage_guild
+@app_commands.checks.has_permissions(manage_messages=True) 
 async def ingest_chatgpt_export_command(interaction: discord.Interaction, file_path: str):
-    await interaction.response.defer(ephemeral=True) # Defer as this might take time
+    await interaction.response.defer(ephemeral=True) 
     logger.info(f"Ingestion of '{file_path}' initiated by {interaction.user.name}.")
     
     if not os.path.exists(file_path):
@@ -1159,14 +1287,13 @@ async def ingest_chatgpt_export_command(interaction: discord.Interaction, file_p
 
 @ingest_chatgpt_export_command.error
 async def ingest_export_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-     if isinstance(error, app_commands.MissingPermissions):
+    if isinstance(error, app_commands.MissingPermissions):
         await interaction.response.send_message("You need 'Manage Messages' (or server) permission to run this command.", ephemeral=True)
-     else:
+    else:
         logger.error(f"Error in ingest_chatgpt_export command: {error}", exc_info=True)
-        # Ensure followup is used if response was deferred
         if interaction.response.is_done():
             await interaction.followup.send(f"An unexpected error occurred: {error}", ephemeral=True)
-        else: # Should not happen if deferred correctly, but as a fallback
+        else: 
             await interaction.response.send_message(f"An unexpected error occurred: {error}", ephemeral=True)
 
 
@@ -1179,7 +1306,6 @@ async def remindme_slash_command(interaction: discord.Interaction, time_duration
         return
     reminder_time = datetime.now() + time_delta
     reminders.append((reminder_time, interaction.channel_id, interaction.user.id, reminder_message, descriptive_time_str or "later"))
-    # Sort reminders by time to process them efficiently, though current loop checks all
     reminders.sort(key=lambda x: x[0]) 
     await interaction.response.send_message(f"Okay, {interaction.user.mention}! I'll remind you in {descriptive_time_str or 'the specified time'} about: \"{reminder_message}\"")
     logger.info(f"Reminder set for {interaction.user.name} at {reminder_time} for: {reminder_message}")
@@ -1188,18 +1314,19 @@ async def remindme_slash_command(interaction: discord.Interaction, time_duration
 @app_commands.describe(url="The URL of the webpage to roast.")
 async def roast_slash_command(interaction: discord.Interaction, url: str):
     logger.info(f"Roast command by {interaction.user.name} for {url}.")
-    # No defer here, stream_llm_response_to_interaction handles it.
     try:
         webpage_text = await scrape_website(url)
         if not webpage_text or "Failed to scrape" in webpage_text or "Scraping timed out" in webpage_text:
             msg = f"Sorry, couldn't roast {url}. {webpage_text or 'Could not retrieve content.'}"
-            # Check if interaction already responded to (e.g. by defer in stream_llm)
             if not interaction.response.is_done(): await interaction.response.send_message(msg, ephemeral=True)
             else: await interaction.followup.send(msg, ephemeral=True)
             return
         
-        # Truncate webpage_text if it's too long to avoid overly large prompts
-        prompt_nodes = [get_system_prompt(), MsgNode("user", f"Analyze content from {url} and write a comedy routine:\n{webpage_text[:3000]}")] # Limit to 3000 chars
+        prompt_nodes = _build_initial_prompt_messages(
+            user_query_content=f"Analyze content from {url} and write a comedy routine:\n{webpage_text[:3000]}",
+            user_id=str(interaction.user.id)
+            # No channel_id or summarized_chroma_context for this specific command's direct input
+        )
         await stream_llm_response_to_interaction(interaction, prompt_nodes, title=f"Comedy Roast of {url}", force_new_followup_flow=False)
     except Exception as e:
         logger.error(f"Error in roast_slash_command for {url}: {e}", exc_info=True)
@@ -1212,34 +1339,29 @@ async def roast_slash_command(interaction: discord.Interaction, url: str):
 async def search_slash_command(interaction: discord.Interaction, query: str):
     logger.info(f"Search command by {interaction.user.name} for: {query}.")
     
-    # Defer immediately as this command involves multiple async operations
     if not interaction.response.is_done(): 
-        try:
-            await interaction.response.defer(ephemeral=False) # Public response
+        try: await interaction.response.defer(ephemeral=False) 
         except discord.HTTPException as e_defer:
             logger.error(f"Search: Failed to defer interaction: {e_defer}")
-            # Try to send an ephemeral message if defer fails
-            try:
-                await interaction.response.send_message("Error starting search. Please try again.",ephemeral=True)
-            except discord.HTTPException: # If even that fails
-                logger.error("Search: Also failed to send error message after defer failure.")
+            try: await interaction.response.send_message("Error starting search. Please try again.",ephemeral=True)
+            except discord.HTTPException: logger.error("Search: Also failed to send error message after defer failure.")
             return 
     
     try:
         search_results = await query_searx(query)
         if not search_results:
-            await interaction.followup.send("No search results found.") # Use followup after defer
+            await interaction.followup.send("No search results found.") 
             return
             
-        # Format results for initial display
-        snippets = [f"{i+1}. **{discord.utils.escape_markdown(r.get('title','N/A'))}** (<{r.get('url','N/A')}>)\n   {discord.utils.escape_markdown(r.get('content',r.get('description','No snippet'))[:250])}..." for i, r in enumerate(search_results)]
+        snippets = [f"{i+1}. **{discord.utils.escape_markdown(r.get('title','N/A'))}** (<{r.get('url','N/A')}>)\n    {discord.utils.escape_markdown(r.get('content',r.get('description','No snippet'))[:250])}..." for i, r in enumerate(search_results)]
         formatted_results = "\n\n".join(snippets)
         
-        # Send the raw search results first
         await interaction.followup.send(embed=discord.Embed(title=f"Top Search Results for: {query}", description=formatted_results[:config.EMBED_MAX_LENGTH], color=config.EMBED_COLOR["incomplete"]))
 
-        # Then, send to LLM for summarization (this will create a new followup message)
-        prompt_nodes = [get_system_prompt(), MsgNode("user", f"Summarize these search results for the query '{query}':\n\n{formatted_results[:3000]}")] # Limit input to LLM
+        prompt_nodes = _build_initial_prompt_messages(
+            user_query_content=f"Summarize these search results for the query '{query}':\n\n{formatted_results[:3000]}",
+            user_id=str(interaction.user.id)
+        )
         await stream_llm_response_to_interaction(interaction, prompt_nodes, title=f"Summary for: {query}", force_new_followup_flow=True)
     except Exception as e:
         logger.error(f"Error in search_slash_command for '{query}': {e}", exc_info=True)
@@ -1251,11 +1373,33 @@ async def search_slash_command(interaction: discord.Interaction, query: str):
 async def pol_slash_command(interaction: discord.Interaction, statement: str):
     logger.info(f"Pol command by {interaction.user.name} for: {statement[:50]}.")
     try:
-        sys_content = ("You are a bot that generates extremely sarcastic, snarky, and troll-like comments "
-                       "to mock extremist political views or absurd political statements. Your goal is to be biting and humorous, "
-                       "undermining the statement without being directly offensive or vulgar. Focus on wit and irony.") 
-        prompt_nodes = [MsgNode("system", sys_content), MsgNode("user", f"Generate sarcastic comeback: \"{statement}\"")]
-        await stream_llm_response_to_interaction(interaction, prompt_nodes, title="Sarcastic Political Commentary", force_new_followup_flow=False)
+        # Specific system prompt for this command, User-Provided Global Context will be added by helper
+        pol_system_content = ("You are a bot that generates extremely sarcastic, snarky, and troll-like comments "
+                              "to mock extremist political views or absurd political statements. Your goal is to be biting and humorous, "
+                              "undermining the statement without being directly offensive or vulgar. Focus on wit and irony.") 
+        
+        # We want the pol_system_content to be the primary system instruction for this task.
+        # _build_initial_prompt_messages adds get_system_prompt() and config.USER_PROVIDED_CONTEXT first.
+        # For this command, we might want to override get_system_prompt() or ensure pol_system_content is dominant.
+        # For now, let's construct it by adding pol_system_content after the global ones.
+        
+        base_prompt_nodes = _build_initial_prompt_messages(
+            user_query_content=f"Generate sarcastic comeback: \"{statement}\"",
+            user_id=str(interaction.user.id)
+        )
+        # Insert the pol-specific system prompt after the global system prompts but before history/user query.
+        # Find first non-system message to insert before, or append if all are system.
+        insert_idx = 0
+        for idx, node in enumerate(base_prompt_nodes):
+            if node.role != "system":
+                insert_idx = idx
+                break
+            insert_idx = idx + 1 # If all are system, append after last system
+            
+        final_prompt_nodes = base_prompt_nodes[:insert_idx] + [MsgNode("system", pol_system_content)] + base_prompt_nodes[insert_idx:]
+
+
+        await stream_llm_response_to_interaction(interaction, final_prompt_nodes, title="Sarcastic Political Commentary", force_new_followup_flow=False)
     except Exception as e:
         logger.error(f"Error in pol_slash_command: {e}", exc_info=True)
         msg = f"Error with pol command: {str(e)[:1000]}"
@@ -1268,8 +1412,7 @@ async def gettweets_slash_command(interaction: discord.Interaction, username: st
     logger.info(f"Gettweets command by {interaction.user.name} for @{username}, limit {limit}.")
     
     if not interaction.response.is_done():
-        try:
-            await interaction.response.defer(ephemeral=False) 
+        try: await interaction.response.defer(ephemeral=False) 
         except discord.HTTPException as e_defer:
             logger.error(f"Gettweets: Failed to defer interaction: {e_defer}")
             try: await interaction.response.send_message("Error starting command. Please try again.",ephemeral=True)
@@ -1282,19 +1425,15 @@ async def gettweets_slash_command(interaction: discord.Interaction, username: st
             await interaction.followup.send(f"Could not fetch tweets for @{username.lstrip('@')}. Profile might be private/non-existent or X is blocking. Scraping X is very unreliable.")
             return
 
-        # Format tweets for display
         tweet_texts = []
         for t in tweets:
-            # Handle potential missing fields gracefully
             ts = t.get('timestamp', 'N/A')
-            author = t.get('username', username.lstrip('@')) # Use original username as fallback
+            author = t.get('username', username.lstrip('@')) 
             content = discord.utils.escape_markdown(t.get('content', 'N/A'))
             tweet_url = t.get('tweet_url', '')
-            
             header = f"[{ts}] @{author}"
             if t.get('is_repost') and t.get('reposted_by'):
                 header = f"[{ts}] @{t.get('reposted_by')} reposted @{author}"
-
             link_text = f" ([Link]({tweet_url}))" if tweet_url else ""
             tweet_texts.append(f"{header}: {content}{link_text}")
 
@@ -1302,15 +1441,16 @@ async def gettweets_slash_command(interaction: discord.Interaction, username: st
         embed_title = f"Recent Tweets from @{username.lstrip('@')}"
         if not raw_tweets_display: raw_tweets_display = "No tweet content could be displayed."
 
-        # Send raw tweets in chunks if necessary
         raw_tweet_chunks = chunk_text(raw_tweets_display, config.EMBED_MAX_LENGTH)
-        for i, chunk_content in enumerate(raw_tweet_chunks):
+        for i, chunk_content_part in enumerate(raw_tweet_chunks):
             chunk_title = embed_title if i == 0 else f"{embed_title} (cont.)"
-            embed = discord.Embed(title=chunk_title, description=chunk_content, color=config.EMBED_COLOR["incomplete"]) 
+            embed = discord.Embed(title=chunk_title, description=chunk_content_part, color=config.EMBED_COLOR["incomplete"]) 
             await interaction.followup.send(embed=embed) 
 
-        # Summarize with LLM (will create a new followup)
-        prompt_nodes_summary = [get_system_prompt(), MsgNode("user", f"Summarize themes, topics, and sentiment from @{username.lstrip('@')}'s recent tweets:\n\n{raw_tweets_display[:3500]}")] # Limit input
+        prompt_nodes_summary = _build_initial_prompt_messages(
+            user_query_content=f"Summarize themes, topics, and sentiment from @{username.lstrip('@')}'s recent tweets:\n\n{raw_tweets_display[:3500]}",
+            user_id=str(interaction.user.id)
+        )
         await stream_llm_response_to_interaction(
             interaction, prompt_nodes_summary, 
             title=f"Tweet Summary for @{username.lstrip('@')}",
@@ -1337,19 +1477,34 @@ async def ap_slash_command(interaction: discord.Interaction, image: discord.Atta
         image_url_for_llm = f"data:{image.content_type};base64,{base64_image}"
         
         chosen_celebrity = random.choice(["Keanu Reeves", "Dwayne Johnson", "Zendaya", "Tom Hanks", "Margot Robbie", "Ryan Reynolds"]) 
-        llm_prompt_text = (f"You are an AP photo caption writer. Describe the attached image in a detailed and intricate way, "
-                           f"as if for a blind person. However, creatively replace the main subject or character in the image with {chosen_celebrity}. "
-                           f"Begin your response with 'AP Photo: {chosen_celebrity}...' "
-                           f"If the user provided an additional prompt, consider it: '{user_prompt}'") 
         
-        # Vision requests use a list for content
-        prompt_nodes = [
-            get_system_prompt(), # Add main system prompt for overall guidance
-            MsgNode("user", [
-                {"type": "text", "text": llm_prompt_text}, 
-                {"type": "image_url", "image_url": {"url": image_url_for_llm}}
-            ])
+        # Specific system prompt for this command's task, to be added after global ones.
+        ap_task_prompt_text = (f"You are an AP photo caption writer. Describe the attached image in a detailed and intricate way, "
+                               f"as if for a blind person. However, creatively replace the main subject or character in the image with {chosen_celebrity}. "
+                               f"Begin your response with 'AP Photo: {chosen_celebrity}...' "
+                               f"If the user provided an additional prompt, consider it: '{user_prompt}'")
+        
+        # Construct the user query part for _build_initial_prompt_messages
+        # This will be a list for multi-modal input
+        user_content_for_ap = [
+            {"type": "text", "text": user_prompt if user_prompt else "Describe this image with the AP Photo twist mentioned in the system prompt."}, # User prompt or default
+            {"type": "image_url", "image_url": {"url": image_url_for_llm}}
         ]
+
+        prompt_nodes = _build_initial_prompt_messages(
+            user_query_content=user_content_for_ap,
+            user_id=str(interaction.user.id)
+        )
+        # Insert the AP-specific system prompt after global system prompts.
+        insert_idx = 0
+        for idx, node in enumerate(prompt_nodes):
+            if node.role != "system":
+                insert_idx = idx
+                break
+            insert_idx = idx + 1 
+        prompt_nodes = prompt_nodes[:insert_idx] + [MsgNode("system", ap_task_prompt_text)] + prompt_nodes[insert_idx:]
+
+
         await stream_llm_response_to_interaction(interaction, prompt_nodes, title=f"AP Photo Description ft. {chosen_celebrity}", force_new_followup_flow=False)
     except Exception as e:
         logger.error(f"Error in ap_slash_command: {e}", exc_info=True)
@@ -1361,10 +1516,9 @@ async def ap_slash_command(interaction: discord.Interaction, image: discord.Atta
 @app_commands.checks.has_permissions(manage_messages=True)
 async def clearhistory_slash_command(interaction: discord.Interaction):
     if interaction.channel_id in message_history:
-        message_history[interaction.channel_id] = [] # Clears the short-term memory
+        message_history[interaction.channel_id] = [] 
         logger.info(f"Message history cleared for channel {interaction.channel_id} by {interaction.user.name}")
         await interaction.response.send_message("Short-term message history for this channel has been cleared.", ephemeral=True)
-        # Note: This does not clear ChromaDB. A separate command would be needed for that.
     else:
         await interaction.response.send_message("No short-term history to clear for this channel.", ephemeral=True)
 
@@ -1383,11 +1537,9 @@ async def clearhistory_error(interaction: discord.Interaction, error: app_comman
 # -------------------------------------------------------------------
 @bot.event
 async def on_message(message: discord.Message):
-    if message.author.bot: return # Ignore bot messages
+    if message.author.bot: return 
     
-    # Check if it's a command invocation for a prefix command
-    # This is a basic check; for more complex prefix setups, this might need adjustment
-    prefixes = await bot.get_prefix(message) # type: ignore
+    prefixes = await bot.get_prefix(message) 
     is_command_attempt = False
     if isinstance(prefixes, (list, tuple)):
         is_command_attempt = any(message.content.startswith(p) for p in prefixes)
@@ -1395,27 +1547,22 @@ async def on_message(message: discord.Message):
         is_command_attempt = message.content.startswith(prefixes)
     
     if is_command_attempt:
-        await bot.process_commands(message) # Let the commands extension handle it
-        return # Don't process as a general LLM message if it's a command
+        await bot.process_commands(message) 
+        return 
 
     is_dm = isinstance(message.channel, discord.DMChannel)
-    is_mentioned = bot.user in message.mentions if bot.user else False # Check if bot.user is not None
+    is_mentioned = bot.user in message.mentions if bot.user else False 
     
-    # Ensure channel_id is an int. For DMs, message.channel.id is the user_id.
-    # For threads, message.channel.id is the thread_id.
     channel_id = message.channel.id 
-    author_roles = getattr(message.author, 'roles', []) # Get roles if in a guild
+    author_roles = getattr(message.author, 'roles', []) 
 
-    # Determine if bot should respond based on channel/role settings or if DM/mentioned
     allowed_by_channel = not config.ALLOWED_CHANNEL_IDS or channel_id in config.ALLOWED_CHANNEL_IDS or \
-                         (isinstance(message.channel, discord.Thread) and message.channel.parent_id in config.ALLOWED_CHANNEL_IDS)
+                        (isinstance(message.channel, discord.Thread) and message.channel.parent_id in config.ALLOWED_CHANNEL_IDS)
     allowed_by_role = not config.ALLOWED_ROLE_IDS or is_dm or any(role.id in config.ALLOWED_ROLE_IDS for role in author_roles)
 
-    # Core condition: Respond if DM, or mentioned, or (allowed channel AND allowed role)
     should_respond = is_dm or is_mentioned or (allowed_by_channel and allowed_by_role)
 
     if not should_respond:
-        # Log if message was ignored due to channel/role restrictions but wasn't a DM or mention
         if not (is_dm or is_mentioned):
             if not allowed_by_channel:
                 logger.debug(f"Msg from {message.author.name} in ChID {channel_id} ignored (channel not allowed).")
@@ -1427,10 +1574,9 @@ async def on_message(message: discord.Message):
 
     if channel_id not in message_history: message_history[channel_id] = []
     
-    current_message_content_parts = [] # For multi-modal messages
-    user_message_text = message.content.replace(f"<@{bot.user.id}>", "").strip() if bot.user else message.content # Remove mention if present
+    current_message_content_parts = [] 
+    user_message_text_for_processing = message.content.replace(f"<@{bot.user.id}>", "").strip() if bot.user else message.content 
 
-    # Process audio attachments for transcription
     if message.attachments:
         for attachment in message.attachments:
             if attachment.content_type and attachment.content_type.startswith("audio/"):
@@ -1441,12 +1587,12 @@ async def on_message(message: discord.Message):
                     transcription = transcribe_audio_file(audio_filename)
                     if os.path.exists(audio_filename): os.remove(audio_filename) 
                     if transcription: 
-                        user_message_text = (user_message_text + " " + f"[Audio Transcript: {transcription}]").strip()
+                        user_message_text_for_processing = (user_message_text_for_processing + " " + f"[Audio Transcript: {transcription}]").strip()
                         logger.info(f"Added transcript from audio attachment: {transcription[:50]}...")
                 except Exception as e: logger.error(f"Error processing audio attachment: {e}", exc_info=True)
-                break # Process only the first audio attachment
+                break 
 
-    if user_message_text: current_message_content_parts.append({"type": "text", "text": user_message_text})
+    if user_message_text_for_processing: current_message_content_parts.append({"type": "text", "text": user_message_text_for_processing})
 
     image_added_to_prompt = False
     if message.attachments:
@@ -1462,120 +1608,145 @@ async def on_message(message: discord.Message):
                 except Exception as e: logger.error(f"Error processing image {attachment.filename}: {e}")
     
     scraped_content_for_llm = "" 
-    if detected_urls_in_text := detect_urls(user_message_text): 
-        for i, url in enumerate(detected_urls_in_text[:2]): # Process up to 2 URLs
+    # Use user_message_text_for_processing for URL detection as it includes transcriptions
+    if detected_urls_in_text := detect_urls(user_message_text_for_processing): 
+        for i, url in enumerate(detected_urls_in_text[:2]): 
             logger.info(f"Processing URL from message: {url}")
             content_piece = None
             youtube_match = re.search(r'(?:v=|\/|embed\/|shorts\/|youtu\.be\/)([0-9A-Za-z_-]{11})', url)
             if youtube_match: 
                 transcript = await fetch_youtube_transcript(url)
-                if transcript: content_piece = f"\n\n--- YouTube Transcript for {url} ---\n{transcript[:2000]}\n--- End Transcript ---" # Limit transcript length
+                if transcript: content_piece = f"\n\n--- YouTube Transcript for {url} ---\n{transcript[:2000]}\n--- End Transcript ---" 
             else: 
                 scraped_text = await scrape_website(url)
                 if scraped_text and "Failed to scrape" not in scraped_text and "Scraping timed out" not in scraped_text:
-                    content_piece = f"\n\n--- Webpage Content for {url} ---\n{scraped_text[:3000]}\n--- End Webpage Content ---" # Limit scraped text length
+                    content_piece = f"\n\n--- Webpage Content for {url} ---\n{scraped_text[:3000]}\n--- End Webpage Content ---" 
             if content_piece: scraped_content_for_llm += content_piece
-            await asyncio.sleep(0.2) # Small delay between processing URLs
+            await asyncio.sleep(0.2) 
 
     if scraped_content_for_llm:
         text_part_found = False
-        for part in current_message_content_parts:
+        for part_idx, part in enumerate(current_message_content_parts):
             if part["type"] == "text":
-                part["text"] = scraped_content_for_llm + "\n\nUser's message (after URL content): " + part["text"]
+                current_message_content_parts[part_idx]["text"] = scraped_content_for_llm + "\n\nUser's message (after URL content): " + part["text"]
                 text_part_found = True
                 break
-        if not text_part_found: # If original message was image-only but contained URLs in text part of image
+        if not text_part_found: 
             current_message_content_parts.insert(0, {"type": "text", "text": scraped_content_for_llm + "\n\n(User sent an attachment, possibly with URLs in a non-text part, or no text initially)"})
 
     if not current_message_content_parts: 
-        if image_added_to_prompt: # If only an image was sent with no text
-             current_message_content_parts.append({"type": "text", "text": "The user sent this image. Please describe it or respond to it if there's an implicit question."})
+        if image_added_to_prompt: 
+            current_message_content_parts.append({"type": "text", "text": "The user sent this image. Please describe it or respond to it if there's an implicit question."})
         else:
             logger.info("Ignoring message with no processable text, audio, or image content after all processing.")
             return
 
-    # Determine final content for the user message node
-    user_msg_node_content: Union[str, List[dict]]
-    if len(current_message_content_parts) == 1 and current_message_content_parts[0]["type"] == "text" and not image_added_to_prompt:
-        user_msg_node_content = current_message_content_parts[0]["text"]
+    user_msg_node_content_final: Union[str, List[dict]]
+    if len(current_message_content_parts) == 1 and current_message_content_parts[0]["type"] == "text": # and not image_added_to_prompt (this condition might be too restrictive if image was added but text is primary)
+        user_msg_node_content_final = current_message_content_parts[0]["text"]
     else:
-        user_msg_node_content = current_message_content_parts
+        user_msg_node_content_final = current_message_content_parts
     
     # --- CONTEXT RETRIEVAL & SUMMARIZATION ---
-    llm_conversation_history = [get_system_prompt()]
-    
-    chroma_query_text = user_message_text if user_message_text else \
-                       (user_msg_node_content[0]['text'] if isinstance(user_msg_node_content, list) and user_msg_node_content and user_msg_node_content[0]['type'] == 'text' else "User sent an image/attachment")
+    # Determine text for ChromaDB query (prefer actual text content)
+    chroma_query_text = user_message_text_for_processing if user_message_text_for_processing.strip() else \
+                        ("User sent an image/attachment" if image_added_to_prompt else "User sent a message with no textual content.")
 
-    retrieved_docs = get_context_from_chromadb(chroma_query_text, n_results=1)
+    retrieved_docs = get_context_from_chromadb(chroma_query_text, n_results=1) 
     
-    summarized_chroma_db_context: Optional[str] = None # Initialize
+    summarized_chroma_db_context_for_prompt: Optional[str] = None 
+    summarized_chroma_db_context_for_display: Optional[str] = None # Separate for display prefix
+
     if retrieved_docs:
-        summarized_chroma_db_context = await get_summarized_context( # Store the summary
+        logger.info(f"Retrieved document from ChromaDB for query: '{chroma_query_text[:50]}...'")
+        summary = await get_summarized_context(
             past_conversation=retrieved_docs[0], 
             current_query=chroma_query_text
         )
-        if summarized_chroma_db_context:
-            context_text_for_prompt = (
-                "The following is a summary of a relevant past conversation. "
-                "Use it to provide a more informed response.\n\n"
-                "--- Relevant Context Summary ---\n" 
-                + summarized_chroma_db_context + # Use the stored summary
-                "\n--- End Summary ---"
-            )
-            llm_conversation_history.insert(1, MsgNode(role="system", content=context_text_for_prompt))
-            logger.info("Added LLM-summarized context from ChromaDB to the prompt.")
+        if summary:
+            summarized_chroma_db_context_for_prompt = summary
+            summarized_chroma_db_context_for_display = summary # Use the same for display
+            logger.info("Successfully summarized ChromaDB context.")
+        else:
+            logger.info("ChromaDB summarization yielded no content, but docs were retrieved.")
+    else:
+        logger.info(f"No relevant documents retrieved from ChromaDB for query: '{chroma_query_text[:50]}...'")
 
-    # Add short-term (last N messages) history
-    llm_conversation_history.extend(message_history[channel_id])
-    
-    # Add the current user message
-    llm_conversation_history.append(MsgNode("user", user_msg_node_content, str(message.author.id)))
-    
-    llm_conversation_history = llm_conversation_history[-(config.MAX_MESSAGE_HISTORY + 2):] 
-    
-    message_history[channel_id].append(MsgNode("user", user_msg_node_content, str(message.author.id)))
-    message_history[channel_id] = message_history[channel_id][-config.MAX_MESSAGE_HISTORY:]
-
-    # Pass the summarized_chroma_db_context to the streaming function
-    await stream_llm_response_to_message(
-        message, 
-        llm_conversation_history,
-        summarized_chroma_context=summarized_chroma_db_context # New argument
+    # Build the full prompt for the LLM
+    llm_prompt_for_current_turn = _build_initial_prompt_messages(
+        user_query_content=user_msg_node_content_final,
+        user_id=str(message.author.id),
+        channel_id=channel_id, # For short-term history
+        summarized_chroma_context_str=summarized_chroma_db_context_for_prompt # For LLM prompt
     )
+    
+    # Update short-term message history with the current user's message *before* calling LLM
+    # This user_msg_node_content_final is what _build_initial_prompt_messages used.
+    # Note: stream_llm_response_to_message will add this user message AGAIN if we are not careful.
+    # The `_build_initial_prompt_messages` should use `message_history[channel_id]` which is from *previous* turns.
+    # Then, `stream_llm_response_to_message` should add the *current* user message and then the assistant response.
+    
+    # Let's adjust: `message_history` is updated *after* the turn.
+    # `_build_initial_prompt_messages` uses the history *up to but not including* the current user message.
+
+    # Call the streaming function
+    await stream_llm_response_to_message(
+        target_message=message, 
+        prompt_messages=llm_prompt_for_current_turn, # This is the fully formed prompt
+        summarized_chroma_context=summarized_chroma_db_context_for_display # For display prefix only
+    )
+    
+    # After the response, update the message_history[channel_id]
+    # The user message part of the current turn is the last 'user' role message in llm_prompt_for_current_turn
+    current_user_msg_node = next((msg for msg in reversed(llm_prompt_for_current_turn) if msg.role == 'user'), None)
+    if current_user_msg_node:
+        if channel_id not in message_history: message_history[channel_id] = [] # Should be initialized already
+        message_history[channel_id].append(current_user_msg_node) 
+        # The assistant's response is added inside stream_llm_response_to_message
+        message_history[channel_id] = message_history[channel_id][-config.MAX_MESSAGE_HISTORY:] # Trim
+
 
 @bot.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
-    if payload.user_id == bot.user.id or str(payload.emoji) != '❌': return # Only care about ❌ from other users
+    if payload.user_id == bot.user.id or str(payload.emoji) != '❌': return 
     try:
         channel = await bot.fetch_channel(payload.channel_id)
-        # Ensure channel is a Messageable channel (TextChannel, Thread, DMChannel)
         if not isinstance(channel, discord.abc.Messageable): return
 
         message = await channel.fetch_message(payload.message_id)
-    except (discord.NotFound, discord.Forbidden): return # Can't fetch channel/message or no perms
+    except (discord.NotFound, discord.Forbidden): return 
     
-    if message.author.id != bot.user.id: return # Only allow deleting bot's own messages
+    if message.author.id != bot.user.id: return 
 
-    can_delete = False
-    # Check for guild permissions if in a guild channel
+    can_delete = False 
     if isinstance(channel, (discord.TextChannel, discord.Thread)) and channel.guild:
         try:
-            member = await channel.guild.fetch_member(payload.user_id)
-            if member and member.guild_permissions.manage_messages: can_delete = True
-        except discord.HTTPException: pass # Failed to fetch member, proceed with other checks
+            member = await channel.guild.fetch_member(payload.user_id) # Reactor
+            # Allow if reactor has manage_messages OR is the original interactor/replied-to user
+            if member and member.guild_permissions.manage_messages: 
+                can_delete = True
+            # Check if reactor was the one who initiated the command (for slash commands)
+            elif message.interaction and message.interaction.user.id == payload.user_id:
+                can_delete = True
+            # Check if the bot's message was a reply to the reactor's message
+            elif message.reference and message.reference.message_id:
+                original_message = await channel.fetch_message(message.reference.message_id)
+                if original_message.author.id == payload.user_id:
+                    can_delete = True
+        except discord.HTTPException: pass # Failed to fetch member or original message
 
-    # Allow original interactor (for slash commands) or original replier (for message commands) to delete
+    elif isinstance(channel, discord.DMChannel): # In DMs, the other user can always delete bot's messages
+        can_delete = True
+    
+    # Fallback check if not covered by guild permissions (e.g. for DMs or if initial checks failed)
     if not can_delete:
-        # Check if the message was a response to an interaction initiated by the reactor
         if message.interaction and message.interaction.user.id == payload.user_id: 
             can_delete = True
-        # Check if the message was a reply to a message sent by the reactor
         elif message.reference and message.reference.message_id:
             try:
                 original_message = await channel.fetch_message(message.reference.message_id)
                 if original_message.author.id == payload.user_id: can_delete = True
-            except discord.NotFound: pass # Original message of reply not found
+            except discord.NotFound: pass
 
     if can_delete:
         try: 
@@ -1585,13 +1756,14 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
 
 @bot.event
 async def on_ready():
-    if not bot.user: # Should not happen if login is successful
+    if not bot.user: 
         logger.critical("Bot user is not available on_ready. This is a critical error.")
         return
     logger.info(f'{bot.user.name} has connected to Discord! ID: {bot.user.id}')
     logger.info(f"discord.py version: {discord.__version__}")
     logger.info(f"Operating in channels: {config.ALLOWED_CHANNEL_IDS if config.ALLOWED_CHANNEL_IDS else 'All permitted by default'}")
     logger.info(f"Restricted to roles: {config.ALLOWED_ROLE_IDS if config.ALLOWED_ROLE_IDS else 'None'}")
+    logger.info(f"User-Provided Global Context: {'Present' if config.USER_PROVIDED_CONTEXT else 'Not set'}")
     try:
         synced = await bot.tree.sync() 
         logger.info(f"Synced {len(synced)} slash commands globally.")
@@ -1610,10 +1782,10 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
 
     if isinstance(error, app_commands.CommandInvokeError): 
         original_error = error.original
-        if isinstance(original_error, discord.errors.NotFound) and original_error.code == 10062: # Unknown Interaction
+        if isinstance(original_error, discord.errors.NotFound) and original_error.code == 10062: 
             error_message = "The command took too long to respond initially, or the interaction expired. Please try again."
             logger.warning(f"Original 'Unknown Interaction' (10062) for {command_name}. Interaction ID: {interaction.id}")
-            original_error_is_unknown_interaction = True # Flag to potentially skip sending a followup
+            original_error_is_unknown_interaction = True 
         else: error_message = f"Command '{command_name}' failed: {str(original_error)[:500]}"
     elif isinstance(error, app_commands.CommandNotFound): error_message = "Command not found. This is unexpected."
     elif isinstance(error, app_commands.MissingPermissions): error_message = f"You lack permissions: {', '.join(error.missing_permissions)}"
@@ -1622,32 +1794,30 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
     elif isinstance(error, app_commands.CommandOnCooldown): error_message = f"This command is on cooldown. Try again in {error.retry_after:.2f} seconds."
     elif isinstance(error, app_commands.TransformerError): error_message = f"Invalid argument: {error.value}. Expected type: {error.type}."
     
-    if original_error_is_unknown_interaction: return # Don't try to respond to an unknown interaction
+    if original_error_is_unknown_interaction: return 
 
     try:
         if interaction.response.is_done(): await interaction.followup.send(error_message, ephemeral=True)
         else: await interaction.response.send_message(error_message, ephemeral=True)
     except discord.errors.HTTPException as ehttp: 
-        # Common case: Interaction already acknowledged (e.g., from a defer in the command itself)
-        if ehttp.code == 40060: # Interaction has already been responded to
+        if ehttp.code == 40060: 
             logger.warning(f"Error handler: Interaction for '{command_name}' already acknowledged. Trying followup. OrigErr: {error}")
-            try: await interaction.followup.send(error_message, ephemeral=True) # Try followup
+            try: await interaction.followup.send(error_message, ephemeral=True) 
             except Exception as e_followup: logger.error(f"Error handler: Failed followup for '{command_name}': {e_followup}")
         else: logger.error(f"Error handler: HTTPException for '{command_name}': {ehttp}. OrigErr: {error}")
-    except discord.errors.NotFound: # Interaction might have expired completely
+    except discord.errors.NotFound: 
         logger.error(f"Error handler: Interaction not found for '{command_name}'. OrigErr: {error}")
-    except Exception as e_generic: # Catch-all for other issues
+    except Exception as e_generic: 
         logger.error(f"Error handler: Generic error for '{command_name}': {e_generic}. OrigErr: {error}")
 
 @bot.event
 async def on_command_error(ctx: commands.Context, error: commands.CommandError):
-    # Handle errors for traditional prefix commands
-    if isinstance(error, commands.CommandNotFound): pass # Ignore, could be a typo or general message
+    if isinstance(error, commands.CommandNotFound): pass 
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.reply(f"You're missing an argument for !{ctx.command.name if ctx.command else 'command'}: {error.param.name}.", silent=True)
     elif isinstance(error, commands.BadArgument):
         await ctx.reply(f"Invalid argument provided for !{ctx.command.name if ctx.command else 'command'}.", silent=True)
-    elif isinstance(error, commands.CheckFailure): # Includes permission checks
+    elif isinstance(error, commands.CheckFailure): 
         await ctx.reply("You don't have permissions for that prefix command.", silent=True)
     elif isinstance(error, commands.CommandInvokeError):
         logger.error(f"Error invoking prefix command !{ctx.command.name if ctx.command else 'command'}: {error.original}", exc_info=error.original)
@@ -1659,11 +1829,10 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
 if __name__ == "__main__":
     if not config.DISCORD_BOT_TOKEN:
         logger.critical("DISCORD_BOT_TOKEN is not set. Bot cannot start.")
-    elif not chroma_client or not chat_history_collection: # Check if ChromaDB initialized
+    elif not chroma_client or not chat_history_collection: 
         logger.critical("ChromaDB failed to initialize. Bot cannot start.")
     else:
         try:
-            # Pass None for log_handler to use the default discord.py logging or our custom one
             bot.run(config.DISCORD_BOT_TOKEN, log_handler=None) 
         except discord.LoginFailure:
             logger.critical("Failed to log in with the provided Discord token. Please check it.")
